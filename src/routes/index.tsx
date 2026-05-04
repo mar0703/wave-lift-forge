@@ -521,10 +521,20 @@ function ExerciseCard({
           >
             {exercise.exercise}
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5">
-            {exercise.sets} × {exercise.reps}
-            <span className="mx-1.5">·</span>
+          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <span>{exercise.sets} × {exercise.reps}</span>
+            <span>·</span>
             <span className={tone.text}>{exercise.intensity_pct}%</span>
+            <span
+              className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-black border",
+                zone.tone,
+                zone.bg,
+                zone.border
+              )}
+            >
+              {zone.label} {zone.range}
+            </span>
           </div>
         </div>
         <div className="text-right shrink-0">
