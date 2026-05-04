@@ -31,6 +31,22 @@ function focusFor(intensity: number) {
   return { label: "Heavy / Peak day", tone: "text-red-400" };
 }
 
+function getZone(pct: number) {
+  if (pct < 70) return { label: "Z1", range: "<70%", tone: "text-zinc-400", bg: "bg-zinc-500/20", border: "border-zinc-500" };
+  if (pct < 80) return { label: "Z2", range: "70–80%", tone: "text-blue-400", bg: "bg-blue-500/20", border: "border-blue-500" };
+  if (pct < 90) return { label: "Z3", range: "80–90%", tone: "text-amber-400", bg: "bg-amber-500/20", border: "border-amber-500" };
+  return { label: "Z4", range: "90%+", tone: "text-red-400", bg: "bg-red-500/20", border: "border-red-500" };
+}
+
+function fatigueBand(mod: number) {
+  // engine: >70 fatigue → 0.85, 40–70 → 1.0, <40 → 1.05
+  if (mod <= 0.9) return { label: "HIGH", pct: 90, tone: "text-red-400", bar: "bg-red-500" };
+  if (mod >= 1.04) return { label: "LOW", pct: 25, tone: "text-emerald-400", bar: "bg-emerald-500" };
+  return { label: "MEDIUM", pct: 60, tone: "text-amber-400", bar: "bg-amber-500" };
+}
+
+const WAVE_DISPLAY = [70, 80, 60, 85, 75];
+
 function intensityTone(pct: number) {
   if (pct < 70)
     return {
@@ -263,6 +279,82 @@ function Index() {
               />
             </div>
 
+            {/* Fatigue */}
+            {(() => {
+              const fb = fatigueBand(workout.fatigue_modifier);
+              return (
+                <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                      Fatigue load
+                    </span>
+                    <span className={cn("text-sm font-black uppercase", fb.tone)}>
+                      {fb.label}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-secondary rounded overflow-hidden">
+                    <div
+                      className={cn("h-full transition-all", fb.bar)}
+                      style={{ width: `${fb.pct}%` }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    modifier ×{workout.fatigue_modifier.toFixed(2)}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Live wave */}
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="flex justify-between items-baseline mb-3">
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                  Wave · day {workout.day}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  base {workout.base_intensity}% → adj {workout.adjusted_intensity}%
+                </span>
+              </div>
+              <div className="flex items-end justify-between gap-1 h-20">
+                {WAVE_DISPLAY.map((basePct, i) => {
+                  const dayIdx = i + 1;
+                  const isToday = dayIdx === workout.day;
+                  const displayPct = isToday ? workout.adjusted_intensity : basePct;
+                  const tone = intensityTone(displayPct);
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                      <div className="w-full flex items-end justify-center h-full">
+                        <div
+                          className={cn(
+                            "w-full rounded-t transition-all",
+                            tone.bar,
+                            isToday ? "opacity-100" : "opacity-30"
+                          )}
+                          style={{ height: `${displayPct}%` }}
+                        />
+                      </div>
+                      <div
+                        className={cn(
+                          "text-[9px] font-bold",
+                          isToday ? "text-foreground" : "text-muted-foreground"
+                        )}
+                      >
+                        {Math.round(displayPct)}
+                      </div>
+                      <div
+                        className={cn(
+                          "text-[9px] uppercase",
+                          isToday ? "text-primary font-black" : "text-muted-foreground"
+                        )}
+                      >
+                        D{dayIdx}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {workout.notes.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {workout.notes.map((n, i) => (
@@ -399,6 +491,7 @@ function ExerciseCard({
   onToggleSet: (setIdx: number) => void;
 }) {
   const tone = intensityTone(exercise.intensity_pct);
+  const zone = getZone(exercise.intensity_pct);
   const displayWeight = exercise.weight_kg + state.weightOffset;
   const allDone =
     state.doneSets.length > 0 && state.doneSets.every(Boolean);
@@ -429,10 +522,20 @@ function ExerciseCard({
           >
             {exercise.exercise}
           </div>
-          <div className="text-xs text-muted-foreground mt-0.5">
-            {exercise.sets} × {exercise.reps}
-            <span className="mx-1.5">·</span>
+          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <span>{exercise.sets} × {exercise.reps}</span>
+            <span>·</span>
             <span className={tone.text}>{exercise.intensity_pct}%</span>
+            <span
+              className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-black border",
+                zone.tone,
+                zone.bg,
+                zone.border
+              )}
+            >
+              {zone.label} {zone.range}
+            </span>
           </div>
         </div>
         <div className="text-right shrink-0">
