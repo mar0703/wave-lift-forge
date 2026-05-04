@@ -49,7 +49,7 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
 
   // 2) Inject corrective exercises (skip ones already present)
   const present = new Set(exercises.map((e) => e.exercise.toLowerCase()));
-  const correctiveIds = exercisesForProblems(problems);
+  const correctiveIds = exercisesForProblems(problems).slice(0, 2); // ограничение
   const injected: string[] = [];
   const intensity = base.adjusted_intensity / 100;
 
@@ -58,7 +58,15 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
     if (!cat) continue;
     if (present.has(cat.name.toLowerCase())) continue;
 
-    // Use a representative max: snatch family vs clean/jerk family
+    const isPull = cat.type === "pull";
+    const isSpeed = cat.type === "speed";
+    const isReceive = cat.type === "receive";
+
+    let modifier = 0.9;
+    if (isPull) modifier = 1.05;
+    if (isSpeed) modifier = 0.75;
+    if (isReceive) modifier = 0.7;
+
     const isSnatchFamily = /snatch/i.test(id);
     const refMax = isSnatchFamily
       ? input.daily_snatch_max
@@ -68,10 +76,10 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
     exercises.push({
       exercise: cat.name,
       group: cat.group,
-      sets: Math.max(2, sr.sets - 1), // accessory volume slightly lower
+      sets: Math.max(2, sr.sets - 1),
       reps: sr.reps + 1,
       intensity_pct: Math.round(intensity * 1000) / 10,
-      weight_kg: round25(refMax * intensity * 0.9),
+      weight_kg: round25(refMax * intensity * modifier),
     });
     injected.push(cat.name);
   }
