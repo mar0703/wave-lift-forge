@@ -31,6 +31,22 @@ function focusFor(intensity: number) {
   return { label: "Heavy / Peak day", tone: "text-red-400" };
 }
 
+function getZone(pct: number) {
+  if (pct < 70) return { label: "Z1", range: "<70%", tone: "text-zinc-400", bg: "bg-zinc-500/20", border: "border-zinc-500" };
+  if (pct < 80) return { label: "Z2", range: "70–80%", tone: "text-blue-400", bg: "bg-blue-500/20", border: "border-blue-500" };
+  if (pct < 90) return { label: "Z3", range: "80–90%", tone: "text-amber-400", bg: "bg-amber-500/20", border: "border-amber-500" };
+  return { label: "Z4", range: "90%+", tone: "text-red-400", bg: "bg-red-500/20", border: "border-red-500" };
+}
+
+function fatigueBand(mod: number) {
+  // engine: >70 fatigue → 0.85, 40–70 → 1.0, <40 → 1.05
+  if (mod <= 0.9) return { label: "HIGH", pct: 90, tone: "text-red-400", bar: "bg-red-500" };
+  if (mod >= 1.04) return { label: "LOW", pct: 25, tone: "text-emerald-400", bar: "bg-emerald-500" };
+  return { label: "MEDIUM", pct: 60, tone: "text-amber-400", bar: "bg-amber-500" };
+}
+
+const WAVE_DISPLAY = [70, 80, 60, 85, 75];
+
 function intensityTone(pct: number) {
   if (pct < 70)
     return {
