@@ -93,3 +93,20 @@ export function evaluateAllRatios(
 ): RatioEvaluation[] {
   return RATIOS.map((r) => evaluateRatio(r, maxes[r.numerator] ?? 0, maxes[r.denominator] ?? 0));
 }
+
+// Detect unique problem ids from user maxes against a ratio set.
+export function detectProblems(
+  userMaxes: Record<string, number>,
+  ratios: RatioDef[] = RATIOS
+): string[] {
+  const problems: string[] = [];
+  ratios.forEach((r) => {
+    const num = userMaxes[r.numerator];
+    const den = userMaxes[r.denominator];
+    if (!num || !den) return;
+    const value = num / den;
+    if (value < r.norm_min) problems.push(r.low_problem);
+    else if (value > r.norm_max) problems.push(r.high_problem);
+  });
+  return [...new Set(problems)];
+}
