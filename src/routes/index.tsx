@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   generateWorkout,
   postWorkoutAdaptation,
@@ -7,11 +7,13 @@ import {
   type EngineInput,
   type WorkoutOutput,
   type AdaptationResult,
+  type ExerciseBlock,
 } from "@/lib/training-engine";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -21,6 +23,33 @@ const BODY_LABEL: Record<BodyType, string> = {
   ecto: "Lean",
   meso: "Balanced",
   endo: "Strong",
+};
+
+function focusFor(intensity: number) {
+  if (intensity < 70) return { label: "Technique day", tone: "text-emerald-400" };
+  if (intensity <= 85) return { label: "Strength day", tone: "text-amber-400" };
+  return { label: "Heavy / Peak day", tone: "text-red-400" };
+}
+
+function intensityTone(pct: number) {
+  if (pct < 70)
+    return {
+      bar: "bg-emerald-500",
+      text: "text-emerald-400",
+      ring: "border-l-emerald-500",
+    };
+  if (pct <= 85)
+    return {
+      bar: "bg-amber-500",
+      text: "text-amber-400",
+      ring: "border-l-amber-500",
+    };
+  return { bar: "bg-red-500", text: "text-red-400", ring: "border-l-red-500" };
+}
+
+type ExerciseUiState = {
+  weightOffset: number;
+  doneSets: boolean[];
 };
 
 function Index() {
@@ -35,9 +64,20 @@ function Index() {
   });
 
   const [post, setPost] = useState({ success_rate: 85, average_RPE: 7 });
-
   const [workout, setWorkout] = useState<WorkoutOutput | null>(null);
   const [adaptation, setAdaptation] = useState<AdaptationResult | null>(null);
+  const [uiState, setUiState] = useState<ExerciseUiState[]>([]);
+
+  // Initialize per-exercise UI state when workout regenerates
+  useEffect(() => {
+    if (!workout) return;
+    setUiState(
+      workout.exercises.map((e) => ({
+        weightOffset: 0,
+        doneSets: Array(e.sets).fill(false),
+      }))
+    );
+  }, [workout]);
 
   const update = <K extends keyof EngineInput>(k: K, v: EngineInput[K]) =>
     setInput((p) => ({ ...p, [k]: v }));
@@ -61,6 +101,44 @@ function Index() {
     );
   };
 
+  const adjustWeight = (idx: number, delta: number) =>
+    setUiState((prev) =>
+      prev.map((s, i) => (i === idx ? { ...s, weightOffset: s.weightOffset + delta } : s))
+    );
+
+  const toggleSet = (exIdx: number, setIdx: number) =>
+    setUiState((prev) =>
+      prev.map((s, i) =>
+        i === exIdx
+          ? {
+              ...s,
+              doneSets: s.doneSets.map((d, j) => (j === setIdx ? !d : d)),
+            }
+          : s
+      )
+    );
+
+  const summary = useMemo(() => {
+    if (!workout)
+      return { total: 0, avgIntensity: 0, doneSets: 0, totalSets: 0 };
+    const total = workout.exercises.length;
+    const avg =
+      workout.exercises.reduce((a, e) => a + e.intensity_pct, 0) / Math.max(1, total);
+    const totalSets = workout.exercises.reduce((a, e) => a + e.sets, 0);
+    const doneSets = uiState.reduce(
+      (a, s) => a + s.doneSets.filter(Boolean).length,
+      0
+    );
+    return {
+      total,
+      avgIntensity: Math.round(avg * 10) / 10,
+      doneSets,
+      totalSets,
+    };
+  }, [workout, uiState]);
+
+  const focus = workout ? focusFor(workout.adjusted_intensity) : null;
+
   return (
     <div className="dark min-h-screen bg-background text-foreground">
       <header className="px-5 pt-8 pb-4 border-b border-border">
@@ -68,6 +146,16 @@ function Index() {
         <p className="text-xs text-muted-foreground uppercase tracking-widest">
           Daily training engine
         </p>
+        {focus && (
+          <div className="mt-3 flex items-center gap-2">
+            <span className={cn("text-lg font-black uppercase", focus.tone)}>
+              {focus.label}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              · {workout!.adjusted_intensity}%
+            </span>
+          </div>
+        )}
       </header>
 
       <main className="px-5 py-6 space-y-8 max-w-md mx-auto">
@@ -88,7 +176,9 @@ function Index() {
                 type="number"
                 inputMode="numeric"
                 value={input.daily_clean_jerk_max}
-                onChange={(e) => update("daily_clean_jerk_max", Number(e.target.value))}
+                onChange={(e) =>
+                  update("daily_clean_jerk_max", Number(e.target.value))
+                }
                 className="h-12 text-lg font-bold"
               />
             </Field>
@@ -138,7 +228,9 @@ function Index() {
                   type="button"
                   variant={input.training_day_index === d ? "default" : "outline"}
                   className="h-12 font-bold text-lg"
-                  onClick={() => update("training_day_index", d as 1 | 2 | 3 | 4 | 5)}
+                  onClick={() =>
+                    update("training_day_index", d as 1 | 2 | 3 | 4 | 5)
+                  }
                 >
                   {d}
                 </Button>
@@ -157,72 +249,63 @@ function Index() {
         {/* OUTPUT */}
         {workout && (
           <section className="space-y-5">
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-baseline justify-between mb-3">
-                <div>
-                  <div className="text-xs uppercase tracking-widest text-muted-foreground">
-                    Day
-                  </div>
-                  <div className="text-4xl font-black">{workout.day}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs uppercase tracking-widest text-muted-foreground">
-                    Adjusted
-                  </div>
-                  <div className="text-4xl font-black text-primary">
-                    {workout.adjusted_intensity}%
-                  </div>
-                  <div className="text-[10px] uppercase text-muted-foreground">
-                    Base {workout.base_intensity}%
-                  </div>
-                </div>
-              </div>
-              {workout.notes.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border">
-                  {workout.notes.map((n, i) => (
-                    <span
-                      key={i}
-                      className="text-[10px] uppercase tracking-wide bg-secondary text-secondary-foreground px-2 py-1 rounded"
-                    >
-                      {n}
-                    </span>
-                  ))}
-                </div>
-              )}
+            {/* Summary */}
+            <div className="grid grid-cols-3 gap-2 rounded-lg border border-border bg-card p-3">
+              <Stat label="Lifts" value={String(summary.total)} />
+              <Stat
+                label="Avg %"
+                value={`${summary.avgIntensity}%`}
+                tone={intensityTone(summary.avgIntensity).text}
+              />
+              <Stat
+                label="Sets"
+                value={`${summary.doneSets}/${summary.totalSets}`}
+              />
             </div>
 
+            {workout.notes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {workout.notes.map((n, i) => (
+                  <span
+                    key={i}
+                    className="text-[10px] uppercase tracking-wide bg-secondary text-secondary-foreground px-2 py-1 rounded"
+                  >
+                    {n}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {(["Main", "Special", "General"] as const).map((group) => {
-              const items = workout.exercises.filter((e) => e.group === group);
+              const items = workout.exercises
+                .map((e, idx) => ({ e, idx }))
+                .filter((x) => x.e.group === group);
               if (items.length === 0) return null;
+              const isMain = group === "Main";
               return (
                 <div key={group} className="space-y-2">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+                  <h3
+                    className={cn(
+                      "text-xs font-black uppercase tracking-widest",
+                      isMain ? "text-primary" : "text-muted-foreground"
+                    )}
+                  >
                     {group}
                   </h3>
-                  {items.map((e, i) => (
-                    <div
-                      key={i}
-                      className="rounded-lg border border-border bg-card p-4 flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="font-bold uppercase tracking-wide">
-                          {e.exercise}
-                        </div>
-                        <div className="text-sm text-muted-foreground mt-1">
-                          {e.sets} × {e.reps}
-                          <span className="mx-2">·</span>
-                          {e.intensity_pct}%
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-3xl font-black text-primary leading-none">
-                          {e.weight_kg}
-                        </div>
-                        <div className="text-[10px] uppercase text-muted-foreground mt-1">
-                          kg
-                        </div>
-                      </div>
-                    </div>
+                  {items.map(({ e, idx }) => (
+                    <ExerciseCard
+                      key={idx}
+                      exercise={e}
+                      isMain={isMain}
+                      state={
+                        uiState[idx] ?? {
+                          weightOffset: 0,
+                          doneSets: Array(e.sets).fill(false),
+                        }
+                      }
+                      onAdjust={(d) => adjustWeight(idx, d)}
+                      onToggleSet={(s) => toggleSet(idx, s)}
+                    />
                   ))}
                 </div>
               );
@@ -240,7 +323,9 @@ function Index() {
                   max={100}
                   step={1}
                   value={[post.success_rate]}
-                  onValueChange={(v) => setPost((p) => ({ ...p, success_rate: v[0] }))}
+                  onValueChange={(v) =>
+                    setPost((p) => ({ ...p, success_rate: v[0] }))
+                  }
                 />
               </Field>
 
@@ -250,7 +335,9 @@ function Index() {
                   max={10}
                   step={1}
                   value={[post.average_RPE]}
-                  onValueChange={(v) => setPost((p) => ({ ...p, average_RPE: v[0] }))}
+                  onValueChange={(v) =>
+                    setPost((p) => ({ ...p, average_RPE: v[0] }))
+                  }
                 />
               </Field>
 
@@ -298,7 +385,149 @@ function Index() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function ExerciseCard({
+  exercise,
+  isMain,
+  state,
+  onAdjust,
+  onToggleSet,
+}: {
+  exercise: ExerciseBlock;
+  isMain: boolean;
+  state: ExerciseUiState;
+  onAdjust: (delta: number) => void;
+  onToggleSet: (setIdx: number) => void;
+}) {
+  const tone = intensityTone(exercise.intensity_pct);
+  const displayWeight = exercise.weight_kg + state.weightOffset;
+  const allDone =
+    state.doneSets.length > 0 && state.doneSets.every(Boolean);
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border bg-card border-l-4 transition-opacity",
+        tone.ring,
+        isMain
+          ? "border-2 border-border bg-card p-4 shadow-lg"
+          : "p-3 opacity-95",
+        allDone && "opacity-60"
+      )}
+      style={
+        isMain
+          ? { background: "color-mix(in oklab, var(--card) 92%, black)" }
+          : undefined
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div
+            className={cn(
+              "font-black uppercase tracking-wide",
+              isMain ? "text-base" : "text-sm"
+            )}
+          >
+            {exercise.exercise}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {exercise.sets} × {exercise.reps}
+            <span className="mx-1.5">·</span>
+            <span className={tone.text}>{exercise.intensity_pct}%</span>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div
+            className={cn(
+              "font-black leading-none",
+              isMain ? "text-4xl" : "text-2xl",
+              tone.text
+            )}
+          >
+            {displayWeight}
+          </div>
+          <div className="text-[10px] uppercase text-muted-foreground mt-1">
+            kg
+          </div>
+        </div>
+      </div>
+
+      {/* Set checkboxes */}
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        {state.doneSets.map((done, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onToggleSet(i)}
+            className={cn(
+              "h-9 w-9 rounded border-2 text-xs font-bold transition-colors flex items-center justify-center",
+              done
+                ? cn("text-background border-transparent", tone.bar)
+                : "border-border text-muted-foreground hover:border-foreground"
+            )}
+            aria-label={`Set ${i + 1}`}
+          >
+            {done ? "✓" : i + 1}
+          </button>
+        ))}
+      </div>
+
+      {/* Weight adjust */}
+      <div className="grid grid-cols-3 gap-1.5 mt-3">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 font-bold"
+          onClick={() => onAdjust(-2.5)}
+        >
+          −2.5
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 font-bold"
+          onClick={() => onAdjust(2.5)}
+        >
+          +2.5
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 font-bold"
+          onClick={() => onAdjust(5)}
+        >
+          +5
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="text-center">
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className={cn("text-xl font-black", tone)}>{value}</div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-2">
       <Label className="text-xs uppercase tracking-widest text-muted-foreground font-bold">
