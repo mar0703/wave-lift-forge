@@ -279,6 +279,82 @@ function Index() {
               />
             </div>
 
+            {/* Fatigue */}
+            {(() => {
+              const fb = fatigueBand(workout.fatigue_modifier);
+              return (
+                <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                      Fatigue load
+                    </span>
+                    <span className={cn("text-sm font-black uppercase", fb.tone)}>
+                      {fb.label}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-secondary rounded overflow-hidden">
+                    <div
+                      className={cn("h-full transition-all", fb.bar)}
+                      style={{ width: `${fb.pct}%` }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    modifier ×{workout.fatigue_modifier.toFixed(2)}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Live wave */}
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="flex justify-between items-baseline mb-3">
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                  Wave · day {workout.day}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  base {workout.base_intensity}% → adj {workout.adjusted_intensity}%
+                </span>
+              </div>
+              <div className="flex items-end justify-between gap-1 h-20">
+                {WAVE_DISPLAY.map((basePct, i) => {
+                  const dayIdx = i + 1;
+                  const isToday = dayIdx === workout.day;
+                  const displayPct = isToday ? workout.adjusted_intensity : basePct;
+                  const tone = intensityTone(displayPct);
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                      <div className="w-full flex items-end justify-center h-full">
+                        <div
+                          className={cn(
+                            "w-full rounded-t transition-all",
+                            tone.bar,
+                            isToday ? "opacity-100" : "opacity-30"
+                          )}
+                          style={{ height: `${displayPct}%` }}
+                        />
+                      </div>
+                      <div
+                        className={cn(
+                          "text-[9px] font-bold",
+                          isToday ? "text-foreground" : "text-muted-foreground"
+                        )}
+                      >
+                        {Math.round(displayPct)}
+                      </div>
+                      <div
+                        className={cn(
+                          "text-[9px] uppercase",
+                          isToday ? "text-primary font-black" : "text-muted-foreground"
+                        )}
+                      >
+                        D{dayIdx}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {workout.notes.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {workout.notes.map((n, i) => (
