@@ -491,6 +491,7 @@ function ExerciseCard({
   onToggleSet: (setIdx: number) => void;
 }) {
   const tone = intensityTone(exercise.intensity_pct);
+  const zone = getZone(exercise.intensity_pct);
   const displayWeight = exercise.weight_kg + state.weightOffset;
   const allDone =
     state.doneSets.length > 0 && state.doneSets.every(Boolean);
