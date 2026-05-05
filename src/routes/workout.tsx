@@ -114,12 +114,11 @@ function ExerciseCard({
   onToggle: (j: number) => void;
 }) {
   const w = exercise.weight_kg + state.offset;
-  const slug = exercise.exercise.toLowerCase().replace(/\s|&/g, "_");
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-3">
       <div className="flex items-start justify-between">
-        <Link to="/exercise/$id" params={{ id: slug }} className="flex-1">
-          <div className="font-bold">{exercise.exercise}</div>
+        <Link to="/exercise/$id" params={{ id: exercise.exercise_id }} className="flex-1">
+          <div className="font-bold capitalize">{exercise.name_en}</div>
           <div className="text-xs text-muted-foreground">
             {exercise.sets}×{exercise.reps} · {exercise.intensity_pct}%
           </div>

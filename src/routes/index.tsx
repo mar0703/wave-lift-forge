@@ -65,11 +65,11 @@ function Dashboard() {
           <Link
             key={i}
             to="/exercise/$id"
-            params={{ id: e.exercise.toLowerCase().replace(/\s|&/g, "_") }}
+            params={{ id: e.exercise_id }}
             className="flex items-center justify-between rounded-lg border border-border bg-card p-3"
           >
             <div>
-              <div className="font-bold">{e.exercise}</div>
+              <div className="font-bold capitalize">{e.name_en}</div>
               <div className="text-xs text-muted-foreground">
                 {e.sets}×{e.reps} · {e.intensity_pct}%
               </div>
