@@ -30,6 +30,7 @@ export interface EngineState {
   workout: AugmentedWorkout | WorkoutOutput | null;
   adaptation: AdaptationResult | null;
   history: SessionLog[];
+  correction_state: Record<string, number>;
 }
 
 const defaultState: EngineState = {
