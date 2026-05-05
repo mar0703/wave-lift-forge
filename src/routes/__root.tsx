@@ -39,14 +39,9 @@ export const Route = createRootRoute({
       { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
-      { rel: "stylesheet", href: appCss },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700;800;900&family=Space+Grotesk:wght@600;700&display=swap",
-      },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap",
+        href: appCss,
       },
     ],
   }),
