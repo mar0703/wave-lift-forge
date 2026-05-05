@@ -5,6 +5,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ExerciseBlock } from "@/lib/training-engine";
 import { useT } from "@/lib/i18n";
+import { PROBLEM_PHASE_MAP } from "@/lib/diagnostics";
+
+function humanize(id: string) {
+  return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -81,6 +86,42 @@ function Dashboard() {
           </Link>
         ))}
       </section>
+
+      {"detected_problems" in workout &&
+        ((workout as { detected_problems: string[] }).detected_problems.length > 0 ||
+          (workout as { injected_exercises: string[] }).injected_exercises.length > 0) && (
+          <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <SectionTitle>Diagnostics</SectionTitle>
+            <ul className="space-y-1 text-sm">
+              {(workout as { detected_problems: string[] }).detected_problems.map((p) => {
+                const phase = PROBLEM_PHASE_MAP[p];
+                return (
+                  <li key={p} className="flex items-baseline justify-between gap-3">
+                    <span className="font-bold capitalize">{humanize(p)}</span>
+                    {phase && (
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        → {phase} phase
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {(workout as { injected_exercises: string[] }).injected_exercises.length > 0 && (
+              <>
+                <SectionTitle>Fixes applied</SectionTitle>
+                <ul className="space-y-1 text-sm">
+                  {(workout as { injected_exercises: string[] }).injected_exercises.map((n) => (
+                    <li key={n} className="font-bold capitalize">
+                      • {n}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+        )}
 
       <Button
         variant="outline"
