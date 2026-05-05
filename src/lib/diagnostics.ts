@@ -30,6 +30,31 @@ export const PROBLEM_MAP: Record<string, string[]> = {
   weak_pull: ["snatch_pull", "clean_pull"],
 };
 
+// Severity weight per problem — higher = more urgent to fix.
+export const PROBLEM_PRIORITY: Record<string, number> = {
+  early_arm_bend: 3,
+  no_extension: 3,
+  bar_drift: 2,
+  slow_pull_under: 2,
+  weak_legs: 3,
+  poor_position: 2,
+};
+
+// Pick the most urgent problem given priority + accumulated session count.
+export function getPrimaryProblem(
+  problems: string[],
+  state: Record<string, number>,
+): string | undefined {
+  if (!problems.length) return undefined;
+  return [...problems].sort((a, b) => {
+    const pa = PROBLEM_PRIORITY[a] || 1;
+    const pb = PROBLEM_PRIORITY[b] || 1;
+    const sa = state[a] || 0;
+    const sb = state[b] || 0;
+    return pb + sb - (pa + sa);
+  })[0];
+}
+
 // Problem id → primary technical phase the problem belongs to.
 export const PROBLEM_PHASE_MAP: Record<string, "pull" | "transition" | "receive" | "recovery"> = {
   early_arm_bend: "pull",
