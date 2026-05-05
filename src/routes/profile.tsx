@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { BodyType, Dosha } from "@/lib/training-engine";
-import { LANGS, useLang, setLang, type Lang } from "@/lib/i18n";
+import { LANGS, useLang, setLang, useT, type Lang } from "@/lib/i18n";
 
 const LANG_LABEL: Record<Lang, string> = { en: "EN", pl: "PL", ru: "RU" };
 
@@ -22,16 +22,25 @@ export const Route = createFileRoute("/profile")({
   component: ProfileScreen,
 });
 
-const BODY: Record<BodyType, string> = { ecto: "Lean", meso: "Balanced", endo: "Strong" };
 const DOSHAS: Dosha[] = ["vata", "pitta", "kapha"];
 
 function ProfileScreen() {
+  const t = useT();
   const { input, user_maxes } = useEngine();
   const lang = useLang();
+  const BODY: Record<BodyType, string> = {
+    ecto: t("body_lean"),
+    meso: t("body_balanced"),
+    endo: t("body_strong"),
+  };
+  const STRENGTH_LABEL: Record<"front_squat" | "back_squat", string> = {
+    front_squat: t("front_squat_kg"),
+    back_squat: t("back_squat_kg"),
+  };
   return (
-    <Page title="Profile" subtitle="Athlete inputs">
+    <Page title={t("profile")} subtitle={t("athlete_inputs")}>
       <section className="space-y-3">
-        <SectionTitle>Language</SectionTitle>
+        <SectionTitle>{t("language")}</SectionTitle>
         <div className="grid grid-cols-3 gap-2">
           {LANGS.map((l) => (
             <Button
@@ -47,9 +56,9 @@ function ProfileScreen() {
       </section>
 
       <section className="space-y-4">
-        <SectionTitle>Daily maxes</SectionTitle>
+        <SectionTitle>{t("daily_maxes")}</SectionTitle>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Snatch (kg)">
+          <Field label={t("snatch_kg")}>
             <Input
               type="number"
               value={input.daily_snatch_max}
@@ -57,7 +66,7 @@ function ProfileScreen() {
               className="h-12 text-lg font-bold"
             />
           </Field>
-          <Field label="C&J (kg)">
+          <Field label={t("cj_kg")}>
             <Input
               type="number"
               value={input.daily_clean_jerk_max}
@@ -69,9 +78,9 @@ function ProfileScreen() {
       </section>
 
       <section className="space-y-4">
-        <SectionTitle>Strength maxes</SectionTitle>
+        <SectionTitle>{t("strength_maxes")}</SectionTitle>
         {(["front_squat", "back_squat"] as const).map((id) => (
-          <Field key={id} label={id.replace("_", " ") + " (kg)"}>
+          <Field key={id} label={STRENGTH_LABEL[id]}>
             <Input
               type="number"
               value={user_maxes[id] ?? 0}
@@ -83,17 +92,17 @@ function ProfileScreen() {
       </section>
 
       <section className="space-y-4">
-        <SectionTitle>State</SectionTitle>
-        <Field label={`Readiness · ${input.readiness}/10`}>
+        <SectionTitle>{t("state")}</SectionTitle>
+        <Field label={`${t("readiness")} · ${input.readiness}/10`}>
           <Slider min={1} max={10} step={1} value={[input.readiness]} onValueChange={(v) => engineStore.setInput({ readiness: v[0] })} />
         </Field>
-        <Field label={`Fatigue · ${input.fatigue_score}/100`}>
+        <Field label={`${t("fatigue")} · ${input.fatigue_score}/100`}>
           <Slider min={0} max={100} step={1} value={[input.fatigue_score]} onValueChange={(v) => engineStore.setInput({ fatigue_score: v[0] })} />
         </Field>
       </section>
 
       <section className="space-y-3">
-        <SectionTitle>Body type</SectionTitle>
+        <SectionTitle>{t("body_type")}</SectionTitle>
         <div className="grid grid-cols-3 gap-2">
           {(Object.keys(BODY) as BodyType[]).map((b) => (
             <Button key={b} variant={input.body_type === b ? "default" : "outline"} className="h-12 font-bold uppercase" onClick={() => engineStore.setInput({ body_type: b })}>
@@ -104,7 +113,7 @@ function ProfileScreen() {
       </section>
 
       <section className="space-y-3">
-        <SectionTitle>Dosha</SectionTitle>
+        <SectionTitle>{t("dosha")}</SectionTitle>
         <div className="grid grid-cols-3 gap-2">
           {DOSHAS.map((d) => (
             <Button key={d} variant={input.dosha === d ? "default" : "outline"} className={cn("h-12 font-bold uppercase")} onClick={() => engineStore.setInput({ dosha: d })}>
@@ -115,10 +124,10 @@ function ProfileScreen() {
       </section>
 
       <Button onClick={() => engineStore.generate()} className="w-full h-14 font-black uppercase tracking-wider">
-        Regenerate workout
+        {t("regenerate_workout")}
       </Button>
       <Button variant="outline" onClick={() => engineStore.reset()} className="w-full h-10 uppercase text-xs tracking-widest">
-        Reset all
+        {t("reset_all")}
       </Button>
     </Page>
   );

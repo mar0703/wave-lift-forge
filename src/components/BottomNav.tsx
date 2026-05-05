@@ -1,15 +1,17 @@
 import { Link } from "@tanstack/react-router";
 import { Dumbbell, LayoutGrid, CalendarDays, BarChart3, User } from "lucide-react";
-
-const items = [
-  { to: "/", label: "Today", icon: LayoutGrid },
-  { to: "/workout", label: "Workout", icon: Dumbbell },
-  { to: "/microcycle", label: "Cycle", icon: CalendarDays },
-  { to: "/analytics", label: "Stats", icon: BarChart3 },
-  { to: "/profile", label: "Profile", icon: User },
-] as const;
+import { useT } from "@/lib/i18n";
 
 export function BottomNav() {
+  const t = useT();
+  const items = [
+    { to: "/", label: t("today"), icon: LayoutGrid },
+    { to: "/workout", label: t("workout"), icon: Dumbbell },
+    { to: "/microcycle", label: t("cycle"), icon: CalendarDays },
+    { to: "/analytics", label: t("stats"), icon: BarChart3 },
+    { to: "/profile", label: t("profile"), icon: User },
+  ] as const;
+
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-border bg-background/95 backdrop-blur">
       <ul className="max-w-md mx-auto grid grid-cols-5">
