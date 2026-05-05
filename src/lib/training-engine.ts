@@ -155,7 +155,7 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
     adjusted_intensity: Math.round(adjusted * 1000) / 10,
     fatigue_modifier: fMod,
     body_type: input.body_type,
-    dosha: input.dosha,
+    dosha,
     notes,
     exercises,
   };
