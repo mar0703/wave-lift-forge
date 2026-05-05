@@ -59,6 +59,7 @@ const defaultState: EngineState = {
   workout: null,
   adaptation: null,
   history: [],
+  correction_state: {},
 };
 
 let state: EngineState = load();
