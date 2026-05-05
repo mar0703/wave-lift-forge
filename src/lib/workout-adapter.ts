@@ -1,8 +1,7 @@
 // ADAPTER LAYER
 // engine -> UI. Pure mapping. Does NOT touch engine logic.
 
-import type { ExerciseBlock } from "./training-engine";
-import type { AugmentedWorkout } from "./adaptive-workout";
+import type { WorkoutOutput, ExerciseBlock } from "./training-engine";
 
 export interface UIExercise {
   name: string;
@@ -25,9 +24,6 @@ export interface UIWorkout {
   base_intensity: number;
   blocks: UIBlock[];
   notes: string[];
-  detected_problems: string[];
-  injected_exercises: string[];
-  problem_focus: string[];
 }
 
 const GROUPS: Array<UIBlock["name"]> = ["Main", "Special", "General"];
@@ -44,7 +40,7 @@ function toUIExercise(e: ExerciseBlock): UIExercise {
   };
 }
 
-export function mapWorkoutToUI(workout: AugmentedWorkout): UIWorkout {
+export function mapWorkoutToUI(workout: WorkoutOutput): UIWorkout {
   const blocks: UIBlock[] = GROUPS.map((g) => ({
     name: g,
     exercises: workout.exercises.filter((e) => e.group === g).map(toUIExercise),
@@ -56,8 +52,5 @@ export function mapWorkoutToUI(workout: AugmentedWorkout): UIWorkout {
     base_intensity: workout.base_intensity,
     blocks,
     notes: workout.notes,
-    detected_problems: workout.detected_problems,
-    injected_exercises: workout.injected_exercises,
-    problem_focus: workout.problem_focus,
   };
 }
