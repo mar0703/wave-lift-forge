@@ -385,7 +385,7 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
   const hasClassic = exercises.some((e) => e.family === "snatch" || e.family === "clean");
   const onlyCorrective = exercises.length > 0 && exercises.every((e) => {
     const def = getExerciseById(e.exercise_id);
-    return def?.role === "corrective";
+    return def?.type === "technique";
   });
   if (!exercises.length || !hasClassic || onlyCorrective) {
     exercises = base.exercises.map((ex) => ({
