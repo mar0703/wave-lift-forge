@@ -1,7 +1,18 @@
 // Strength-ratio diagnostics. Pure data → problem ids.
 // No string matching on exercise names — works on user max ids.
 
-import { EXERCISE_DB } from "./exercise-db";
+import { EXERCISE_DB, getExerciseById } from "./exercise-db";
+
+export interface ExerciseResult {
+  exercise_id: string;
+  success_rate: number; // 0..100
+  avg_rpe: number;      // 0..10
+}
+
+export function getProblemsFromExercise(exId: string): string[] {
+  const ex = getExerciseById(exId);
+  return ex?.fixes || [];
+}
 
 export const RATIOS = {
   clean_vs_jerk: {

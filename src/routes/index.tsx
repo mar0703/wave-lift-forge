@@ -31,7 +31,7 @@ function focusKey(intensity: number): "technique" | "strength" | "heavy_peak" {
 
 function Dashboard() {
   const t = useT();
-  const { workout, input } = useEngine();
+  const { workout, input, fix_performance } = useEngine();
   if (!workout) return <Page title={t("today")}><p>{t("loading")}</p></Page>;
   const fk = focusKey(workout.adjusted_intensity);
   const tone = fk === "technique" ? "text-emerald-400" : fk === "strength" ? "text-amber-400" : "text-red-400";
@@ -142,6 +142,27 @@ function Dashboard() {
             )}
           </section>
         )}
+
+      {fix_performance.length > 0 && (
+        <section className="space-y-2 rounded-xl border border-border bg-card p-4">
+          <SectionTitle>Fix performance</SectionTitle>
+          <ul className="space-y-1 text-sm">
+            {fix_performance.map((f) => (
+              <li key={f.exercise_id} className="flex items-baseline justify-between gap-3">
+                <span className="font-bold capitalize">{f.name}</span>
+                <span
+                  className={cn(
+                    "text-[10px] uppercase tracking-widest font-black",
+                    f.status === "ok" ? "text-emerald-400" : "text-red-400",
+                  )}
+                >
+                  → {f.status === "ok" ? "OK" : "struggling"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <Button
         variant="outline"
