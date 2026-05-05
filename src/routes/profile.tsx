@@ -112,17 +112,6 @@ function ProfileScreen() {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <SectionTitle>{t("dosha")}</SectionTitle>
-        <div className="grid grid-cols-3 gap-2">
-          {DOSHAS.map((d) => (
-            <Button key={d} variant={input.dosha === d ? "default" : "outline"} className={cn("h-12 font-bold uppercase")} onClick={() => engineStore.setInput({ dosha: d })}>
-              {d}
-            </Button>
-          ))}
-        </div>
-      </section>
-
       <Button onClick={() => engineStore.generate()} className="w-full h-14 font-black uppercase tracking-wider">
         {t("regenerate_workout")}
       </Button>
