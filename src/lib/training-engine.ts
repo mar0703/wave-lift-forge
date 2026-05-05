@@ -23,9 +23,9 @@ export interface EngineInput {
   readiness: number; // 1-10
   fatigue_score: number; // 0-100
   body_type: BodyType;
-  dosha: Dosha;
+  dosha?: Dosha;
   training_day_index: 1 | 2 | 3 | 4 | 5;
-  profile_assessment?: ProfileAssessment;
+  profile_assessment: ProfileAssessment;
 }
 
 export interface PostWorkoutInput {
