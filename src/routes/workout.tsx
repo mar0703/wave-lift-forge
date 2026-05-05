@@ -5,7 +5,6 @@ import { Page, SectionTitle, Stat } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { useT } from "@/lib/useT";
 import type { ExerciseBlock } from "@/lib/training-engine";
 
 export const Route = createFileRoute("/workout")({
@@ -23,7 +22,6 @@ export const Route = createFileRoute("/workout")({
 type ExUI = { offset: number; done: boolean[] };
 
 function WorkoutScreen() {
-  const t = useT();
   const { workout } = useEngine();
   const [ui, setUi] = useState<ExUI[]>([]);
   const [post, setPost] = useState({ success_rate: 85, average_RPE: 7 });
@@ -42,7 +40,7 @@ function WorkoutScreen() {
     return { done, total };
   }, [workout, ui]);
 
-  if (!workout) return <Page title={t("workout")}><p>{t("generate_first")}</p></Page>;
+  if (!workout) return <Page title="Workout"><p>Generate a workout first.</p></Page>;
 
   const adjust = (i: number, d: number) =>
     setUi((p) => p.map((s, k) => (k === i ? { ...s, offset: s.offset + d } : s)));
@@ -55,11 +53,11 @@ function WorkoutScreen() {
   };
 
   return (
-    <Page title={t("workout")} subtitle={`${t("day")} ${workout.day}`}>
+    <Page title="Workout" subtitle={`Day ${workout.day}`}>
       <div className="rounded-lg border border-border bg-card p-3 grid grid-cols-3 gap-2">
-        <Stat label={t("sets_done")} value={`${totals.done}/${totals.total}`} />
-        <Stat label={t("intensity")} value={`${workout.adjusted_intensity}%`} tone="text-primary" />
-        <Stat label={t("lifts")} value={String(workout.exercises.length)} />
+        <Stat label="Sets done" value={`${totals.done}/${totals.total}`} />
+        <Stat label="Intensity" value={`${workout.adjusted_intensity}%`} tone="text-primary" />
+        <Stat label="Lifts" value={String(workout.exercises.length)} />
       </div>
 
       {(["Main", "Special", "General"] as const).map((g) => {
@@ -82,21 +80,21 @@ function WorkoutScreen() {
       })}
 
       <section className="pt-4 border-t border-border space-y-4">
-        <SectionTitle>{t("finish_session")}</SectionTitle>
+        <SectionTitle>Finish session</SectionTitle>
         <div>
-          <div className="text-xs text-muted-foreground mb-2">{t("success_rate")} · {post.success_rate}%</div>
+          <div className="text-xs text-muted-foreground mb-2">Success rate · {post.success_rate}%</div>
           <Slider min={0} max={100} step={1} value={[post.success_rate]} onValueChange={(v) => setPost((p) => ({ ...p, success_rate: v[0] }))} />
         </div>
         <div>
-          <div className="text-xs text-muted-foreground mb-2">{t("average_rpe")} · {post.average_RPE}/10</div>
+          <div className="text-xs text-muted-foreground mb-2">Average RPE · {post.average_RPE}/10</div>
           <Slider min={1} max={10} step={1} value={[post.average_RPE]} onValueChange={(v) => setPost((p) => ({ ...p, average_RPE: v[0] }))} />
         </div>
         <Button onClick={submit} className="w-full h-14 font-black uppercase tracking-wider">
-          {submitted ? t("saved_view_stats") : t("save_adapt")}
+          {submitted ? "Saved — view stats" : "Save & adapt next session"}
         </Button>
         {submitted && (
           <Link to="/analytics" className="block text-center text-xs uppercase tracking-widest text-primary">
-            {t("see_analytics")}
+            See analytics →
           </Link>
         )}
       </section>

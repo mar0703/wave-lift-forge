@@ -12,7 +12,6 @@ import {
   generateAdaptiveWorkout,
   type AugmentedWorkout,
 } from "./adaptive-workout";
-import type { Lang } from "./i18n";
 
 const KEY = "iron-method-state-v1";
 
@@ -31,7 +30,6 @@ export interface EngineState {
   workout: AugmentedWorkout | WorkoutOutput | null;
   adaptation: AdaptationResult | null;
   history: SessionLog[];
-  lang: Lang;
 }
 
 const defaultState: EngineState = {
@@ -53,7 +51,6 @@ const defaultState: EngineState = {
   workout: null,
   adaptation: null,
   history: [],
-  lang: "en",
 };
 
 let state: EngineState = load();
@@ -96,9 +93,6 @@ export const engineStore = {
   },
   setMax(id: string, kg: number) {
     setState({ user_maxes: { ...state.user_maxes, [id]: kg } });
-  },
-  setLang(lang: Lang) {
-    setState({ lang });
   },
   generate() {
     const wo = generateAdaptiveWorkout({

@@ -4,7 +4,6 @@ import { Page, SectionTitle } from "@/components/Page";
 import { generateAdaptiveWorkout } from "@/lib/adaptive-workout";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useT } from "@/lib/useT";
 
 export const Route = createFileRoute("/microcycle")({
   head: () => ({
@@ -25,7 +24,6 @@ function tone(pct: number) {
 }
 
 function Microcycle() {
-  const t = useT();
   const { input, user_maxes, workout } = useEngine();
   const days = [1, 2, 3, 4, 5].map((d) => {
     const w = generateAdaptiveWorkout({
@@ -37,7 +35,7 @@ function Microcycle() {
   });
 
   return (
-    <Page title={t("cycle")} subtitle={t("microcycle_5")}>
+    <Page title="Cycle" subtitle="5-day microcycle">
       <section className="rounded-lg border border-border bg-card p-3">
         <div className="flex items-end justify-between gap-2 h-32">
           {days.map(({ d, w }) => {
@@ -64,7 +62,7 @@ function Microcycle() {
 
       {days.map(({ d, w }) => (
         <section key={d} className="space-y-2">
-          <SectionTitle>{t("day")} {d} · {Math.round(w.adjusted_intensity)}%</SectionTitle>
+          <SectionTitle>Day {d} · {Math.round(w.adjusted_intensity)}%</SectionTitle>
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {w.exercises.map((e, i) => (
               <div key={i} className="p-3 flex justify-between text-sm">
@@ -77,7 +75,7 @@ function Microcycle() {
       ))}
 
       <Button onClick={() => engineStore.generate()} className="w-full h-12 font-black uppercase tracking-wider">
-        {t("apply_selected")}
+        Apply selected day
       </Button>
     </Page>
   );
