@@ -33,6 +33,7 @@ export interface ExerciseDef {
   group: ExerciseGroup;
   phases?: string[];
   diagnostics?: string[];
+  fixes?: string[]; // what problems this exercise solves
 }
 
 export const EXERCISE_DB: ExerciseDef[] = [
