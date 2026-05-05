@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import type { BodyType } from "@/lib/training-engine";
+import type { BodyType, BodyTendency, StressResponse, ProfileAssessment } from "@/lib/training-engine";
 import { LANGS, useLang, setLang, useT, type Lang } from "@/lib/i18n";
 
 const LANG_LABEL: Record<Lang, string> = { en: "EN", pl: "PL", ru: "RU" };
@@ -112,6 +112,8 @@ function ProfileScreen() {
         </div>
       </section>
 
+      <ProfileAssessmentSection />
+
       <Button onClick={() => engineStore.generate()} className="w-full h-14 font-black uppercase tracking-wider">
         {t("regenerate_workout")}
       </Button>
@@ -128,5 +130,80 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">{label}</div>
       {children}
     </div>
+  );
+}
+
+const DEFAULT_ASSESSMENT: ProfileAssessment = {
+  energy_level: 7,
+  recovery_speed: 7,
+  body_tendency: "stable",
+  stress_response: "calm",
+  sleep_quality: 7,
+};
+
+function ProfileAssessmentSection() {
+  const t = useT();
+  const { input } = useEngine();
+  const a = input.profile_assessment ?? DEFAULT_ASSESSMENT;
+  const update = (patch: Partial<ProfileAssessment>) =>
+    engineStore.setInput({ profile_assessment: { ...a, ...patch } });
+
+  const TENDENCY: Record<BodyTendency, string> = {
+    lose_easily: t("body_tendency_lose"),
+    stable: t("body_tendency_stable"),
+    gain_easily: t("body_tendency_gain"),
+  };
+  const STRESS: Record<StressResponse, string> = {
+    anxious: t("stress_anxious"),
+    aggressive: t("stress_aggressive"),
+    calm: t("stress_calm"),
+  };
+
+  return (
+    <section className="space-y-4">
+      <SectionTitle>{t("profile_assessment")}</SectionTitle>
+
+      <Field label={`${t("energy_level")} · ${a.energy_level}/10`}>
+        <Slider min={1} max={10} step={1} value={[a.energy_level]} onValueChange={(v) => update({ energy_level: v[0] })} />
+      </Field>
+
+      <Field label={`${t("recovery_speed")} · ${a.recovery_speed}/10`}>
+        <Slider min={1} max={10} step={1} value={[a.recovery_speed]} onValueChange={(v) => update({ recovery_speed: v[0] })} />
+      </Field>
+
+      <Field label={`${t("sleep_quality")} · ${a.sleep_quality}/10`}>
+        <Slider min={1} max={10} step={1} value={[a.sleep_quality]} onValueChange={(v) => update({ sleep_quality: v[0] })} />
+      </Field>
+
+      <Field label={t("body_tendency")}>
+        <div className="grid grid-cols-3 gap-2">
+          {(Object.keys(TENDENCY) as BodyTendency[]).map((b) => (
+            <Button
+              key={b}
+              variant={a.body_tendency === b ? "default" : "outline"}
+              className={cn("h-12 text-[10px] font-bold uppercase leading-tight whitespace-normal")}
+              onClick={() => update({ body_tendency: b })}
+            >
+              {TENDENCY[b]}
+            </Button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label={t("stress_response")}>
+        <div className="grid grid-cols-3 gap-2">
+          {(Object.keys(STRESS) as StressResponse[]).map((s) => (
+            <Button
+              key={s}
+              variant={a.stress_response === s ? "default" : "outline"}
+              className={cn("h-12 text-[10px] font-bold uppercase leading-tight whitespace-normal")}
+              onClick={() => update({ stress_response: s })}
+            >
+              {STRESS[s]}
+            </Button>
+          ))}
+        </div>
+      </Field>
+    </section>
   );
 }

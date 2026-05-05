@@ -41,6 +41,13 @@ const defaultState: EngineState = {
     body_type: "meso",
     dosha: "pitta",
     training_day_index: 1,
+    profile_assessment: {
+      energy_level: 7,
+      recovery_speed: 7,
+      body_tendency: "stable",
+      stress_response: "calm",
+      sleep_quality: 7,
+    },
   },
   user_maxes: {
     snatch: 100,
