@@ -1,4 +1,7 @@
 // Olympic Weightlifting Training Engine
+// All exercises are referenced by EXERCISE_DB id — no string matching.
+
+import { getExerciseById, type ExerciseGroup } from "./exercise-db";
 
 export type BodyType = "ecto" | "meso" | "endo";
 export type Dosha = "vata" | "pitta" | "kapha";
@@ -23,8 +26,10 @@ export interface PostWorkoutInput {
 }
 
 export interface ExerciseBlock {
-  exercise: string;
-  group: "Main" | "Special" | "General";
+  exercise_id: string;
+  name_en: string;
+  family: string;
+  group: ExerciseGroup;
   sets: number;
   reps: number;
   intensity_pct: number;
@@ -52,12 +57,35 @@ function fatigueModifier(f: number): number {
   return 1.05;
 }
 
-function setsRepsForIntensity(i: number): { sets: number; reps: number } {
+export function setsRepsForIntensity(i: number): { sets: number; reps: number } {
   const pct = i * 100;
   if (pct < 70) return { sets: 5, reps: 4 };
   if (pct < 80) return { sets: 5, reps: 3 };
   if (pct < 90) return { sets: 4, reps: 2 };
   return { sets: 3, reps: 1 };
+}
+
+export function buildBlock(
+  exerciseId: string,
+  refMax: number,
+  intensity: number,
+  setMultiplier = 1,
+  volumeMultiplier = 1,
+): ExerciseBlock | null {
+  const ex = getExerciseById(exerciseId);
+  if (!ex) return null;
+  const sr = setsRepsForIntensity(intensity);
+  const sets = Math.max(1, Math.round(sr.sets * setMultiplier * volumeMultiplier));
+  return {
+    exercise_id: ex.id,
+    name_en: ex.name_en,
+    family: ex.family,
+    group: ex.group,
+    sets,
+    reps: sr.reps,
+    intensity_pct: Math.round(intensity * 1000) / 10,
+    weight_kg: round25(refMax * intensity),
+  };
 }
 
 export function generateWorkout(input: EngineInput): WorkoutOutput {
@@ -66,7 +94,6 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
   const fMod = fatigueModifier(input.fatigue_score);
   let adjusted = base * (0.85 + 0.03 * input.readiness) * fMod;
 
-  // Body type
   let setMultiplier = 1;
   if (input.body_type === "ecto") {
     setMultiplier = 0.8;
@@ -80,7 +107,6 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
     notes.push("Mesomorph: balanced loading");
   }
 
-  // Dosha
   let volumeMultiplier = 1;
   if (input.dosha === "vata") {
     adjusted *= 0.95;
@@ -95,28 +121,20 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
 
   adjusted = Math.min(adjusted, 1.0);
 
-  const blocks: { name: string; group: ExerciseBlock["group"]; max: number; intensityShift: number }[] = [
-    { name: "Snatch", group: "Main", max: input.daily_snatch_max, intensityShift: 0 },
-    { name: "Clean & Jerk", group: "Main", max: input.daily_clean_jerk_max, intensityShift: 0 },
-    { name: "Snatch Pull", group: "Special", max: input.daily_snatch_max, intensityShift: 0.05 },
-    { name: "Clean Pull", group: "Special", max: input.daily_clean_jerk_max, intensityShift: 0.05 },
-    { name: "Back Squat", group: "General", max: input.daily_clean_jerk_max * 1.2, intensityShift: -0.05 },
+  const blocks: { id: string; max: number; intensityShift: number }[] = [
+    { id: "snatch", max: input.daily_snatch_max, intensityShift: 0 },
+    { id: "clean_jerk", max: input.daily_clean_jerk_max, intensityShift: 0 },
+    { id: "snatch_pull", max: input.daily_snatch_max, intensityShift: 0.05 },
+    { id: "clean_pull", max: input.daily_clean_jerk_max, intensityShift: 0.05 },
+    { id: "back_squat", max: input.daily_clean_jerk_max * 1.2, intensityShift: -0.05 },
   ];
 
-  const exercises: ExerciseBlock[] = blocks.map((b) => {
-    const eIntensity = Math.min(adjusted + b.intensityShift, 1.0);
-    const sr = setsRepsForIntensity(eIntensity);
-    const sets = Math.max(1, Math.round(sr.sets * setMultiplier * volumeMultiplier));
-    const weight = round25(b.max * eIntensity);
-    return {
-      exercise: b.name,
-      group: b.group,
-      sets,
-      reps: sr.reps,
-      intensity_pct: Math.round(eIntensity * 1000) / 10,
-      weight_kg: weight,
-    };
-  });
+  const exercises: ExerciseBlock[] = blocks
+    .map((b) => {
+      const eIntensity = Math.min(adjusted + b.intensityShift, 1.0);
+      return buildBlock(b.id, b.max, eIntensity, setMultiplier, volumeMultiplier);
+    })
+    .filter((b): b is ExerciseBlock => b !== null);
 
   return {
     day: input.training_day_index,
@@ -157,7 +175,7 @@ export function postWorkoutAdaptation(p: PostWorkoutInput): AdaptationResult {
 
   const newFatigue = Math.max(
     0,
-    Math.min(100, p.previous_fatigue + p.session_load_factor - p.recovery_factor)
+    Math.min(100, p.previous_fatigue + p.session_load_factor - p.recovery_factor),
   );
 
   return {
