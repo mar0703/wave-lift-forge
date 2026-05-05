@@ -9,7 +9,7 @@ import {
   type WorkoutOutput,
   type ExerciseBlock,
 } from "./training-engine";
-import { detectProblems, correctivesForProblems } from "./diagnostics";
+import { detectProblems, selectCorrectives } from "./diagnostics";
 import { getExerciseById } from "./exercise-db";
 
 export interface AugmentInput extends EngineInput {
