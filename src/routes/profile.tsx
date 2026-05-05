@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import type { BodyType, Dosha } from "@/lib/training-engine";
+import type { BodyType } from "@/lib/training-engine";
 import { LANGS, useLang, setLang, useT, type Lang } from "@/lib/i18n";
 
 const LANG_LABEL: Record<Lang, string> = { en: "EN", pl: "PL", ru: "RU" };
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/profile")({
   component: ProfileScreen,
 });
 
-const DOSHAS: Dosha[] = ["vata", "pitta", "kapha"];
+
 
 function ProfileScreen() {
   const t = useT();
@@ -107,17 +107,6 @@ function ProfileScreen() {
           {(Object.keys(BODY) as BodyType[]).map((b) => (
             <Button key={b} variant={input.body_type === b ? "default" : "outline"} className="h-12 font-bold uppercase" onClick={() => engineStore.setInput({ body_type: b })}>
               {BODY[b]}
-            </Button>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <SectionTitle>{t("dosha")}</SectionTitle>
-        <div className="grid grid-cols-3 gap-2">
-          {DOSHAS.map((d) => (
-            <Button key={d} variant={input.dosha === d ? "default" : "outline"} className={cn("h-12 font-bold uppercase")} onClick={() => engineStore.setInput({ dosha: d })}>
-              {d}
             </Button>
           ))}
         </div>
