@@ -26,6 +26,13 @@ const CLEAN_VOLUME_BOOST = 1.25;
 const SQUAT_VOLUME_BOOST = 1.2;
 const PULL_VOLUME_BOOST = 1.2;
 
+const PROBLEM_FOCUS: Record<string, string> = {
+  weak_clean: "Clean strength",
+  weak_jerk: "Jerk drive",
+  weak_legs: "Leg strength",
+  weak_pull: "Pull strength",
+};
+
 export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
   const base = generateWorkout(input);
   const problems = detectProblems(input.user_maxes);
