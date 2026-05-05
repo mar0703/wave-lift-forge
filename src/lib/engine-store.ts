@@ -12,6 +12,19 @@ import {
   generateAdaptiveWorkout,
   type AugmentedWorkout,
 } from "./adaptive-workout";
+import {
+  getProblemsFromExercise,
+  type ExerciseResult,
+} from "./diagnostics";
+import { getExerciseById } from "./exercise-db";
+
+export interface FixPerformance {
+  exercise_id: string;
+  name: string;
+  status: "ok" | "struggling";
+  success_rate: number;
+  avg_rpe: number;
+}
 
 const KEY = "iron-method-state-v1";
 
