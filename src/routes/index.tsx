@@ -5,6 +5,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ExerciseBlock } from "@/lib/training-engine";
 import { useT } from "@/lib/i18n";
+import { PROBLEM_PHASE_MAP } from "@/lib/diagnostics";
+
+function humanize(id: string) {
+  return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export const Route = createFileRoute("/")({
   head: () => ({
