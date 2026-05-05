@@ -31,13 +31,14 @@ export const PROBLEM_MAP: Record<string, string[]> = {
 export function detectProblems(maxes: Record<string, number>): string[] {
   const problems: string[] = [];
 
-  const clean = maxes.clean ?? maxes.clean_jerk;
+  const clean = maxes.clean ?? maxes.clean_jerk * 0.8;
   const jerk = maxes.jerk ?? maxes.clean_jerk;
   const frontSquat = maxes.front_squat;
   const cleanPull = maxes.clean_pull;
 
   if (clean && jerk) {
     const r = clean / jerk;
+    console.log("[diagnostics] clean:", clean, "jerk:", jerk, "ratio:", r);
     if (r < RATIOS.clean_vs_jerk.normal_min) problems.push(RATIOS.clean_vs_jerk.issue_low);
     else if (r > RATIOS.clean_vs_jerk.normal_max) problems.push(RATIOS.clean_vs_jerk.issue_high);
   }
