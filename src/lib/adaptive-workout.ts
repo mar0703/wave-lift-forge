@@ -47,12 +47,16 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
 
   // 2) Inject corrective exercises (skip ones already present by id).
   const presentIds = new Set(exercises.map((e) => e.exercise_id));
-  const correctiveIds = correctivesForProblems(problems).slice(0, 2);
+  const correctiveIds = correctivesForProblems(problems).slice(0, 3);
   const injected: string[] = [];
   const intensity = base.adjusted_intensity / 100;
 
   for (const id of correctiveIds) {
-    if (presentIds.has(id)) continue;
+    const existing = exercises.find((e) => e.exercise_id === id);
+    if (existing) {
+      existing.sets = Math.round(existing.sets * 1.2);
+      continue;
+    }
     const ex = getExerciseById(id);
     if (!ex) continue;
 
