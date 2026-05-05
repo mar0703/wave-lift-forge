@@ -1,19 +1,22 @@
 import { Link } from "@tanstack/react-router";
 import { Dumbbell, LayoutGrid, CalendarDays, BarChart3, User } from "lucide-react";
+import { useT } from "@/lib/useT";
+import type { DictKey } from "@/lib/i18n";
 
 const items = [
-  { to: "/", label: "Today", icon: LayoutGrid },
-  { to: "/workout", label: "Workout", icon: Dumbbell },
-  { to: "/microcycle", label: "Cycle", icon: CalendarDays },
-  { to: "/analytics", label: "Stats", icon: BarChart3 },
-  { to: "/profile", label: "Profile", icon: User },
+  { to: "/", labelKey: "today", icon: LayoutGrid },
+  { to: "/workout", labelKey: "workout", icon: Dumbbell },
+  { to: "/microcycle", labelKey: "cycle", icon: CalendarDays },
+  { to: "/analytics", labelKey: "stats", icon: BarChart3 },
+  { to: "/profile", labelKey: "profile", icon: User },
 ] as const;
 
 export function BottomNav() {
+  const t = useT();
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-border bg-background/95 backdrop-blur">
       <ul className="max-w-md mx-auto grid grid-cols-5">
-        {items.map(({ to, label, icon: Icon }) => (
+        {items.map(({ to, labelKey, icon: Icon }) => (
           <li key={to}>
             <Link
               to={to}
@@ -23,7 +26,7 @@ export function BottomNav() {
               className="flex flex-col items-center gap-1 py-2.5 text-[10px] font-bold uppercase tracking-widest"
             >
               <Icon className="h-5 w-5" />
-              {label}
+              {t(labelKey as DictKey)}
             </Link>
           </li>
         ))}
