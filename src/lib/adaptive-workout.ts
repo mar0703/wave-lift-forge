@@ -87,7 +87,7 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
     exercises,
     detected_problems: problems,
     injected_exercises: injected,
-    problem_focus: problems,
+    problem_focus: problems.map((p) => PROBLEM_FOCUS[p] || p),
     notes: [
       ...base.notes,
       ...(problems.length ? [`Detected weaknesses: ${problems.join(", ")}`] : []),
