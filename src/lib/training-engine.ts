@@ -124,12 +124,12 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
   if (dosha === "vata") {
     adjusted *= 0.95;
     volumeMultiplier = 1.1;
-    notes.push("Vata: −5% intensity, +10% volume, more technique work");
+    notes.push("High nervous fatigue", "Slow recovery", "More technique work");
   } else if (dosha === "pitta") {
-    notes.push("Pitta: keep intensity, occasional deload, maintain balance");
+    notes.push("Keep balance", "Occasional deload");
   } else {
     volumeMultiplier = 1.2;
-    notes.push("Kapha: +20% volume, longer sessions, more squats");
+    notes.push("Needs volume adaptation", "Longer sessions, more squats");
   }
 
   adjusted = Math.min(adjusted, 1.0);
