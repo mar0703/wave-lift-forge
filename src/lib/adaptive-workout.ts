@@ -69,8 +69,8 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
 
     let modifier = 0.9;
     if (ex.family === "pull") modifier = 1.05;
-    if (ex.type === "power" || ex.type === "speed") modifier = 0.75;
-    if (ex.type === "receive") modifier = 0.7;
+    if (ex.type === "power") modifier = 0.75;
+    if (ex.phase === "receive") modifier = 0.7;
 
     const refMax =
       ex.family === "snatch" ? input.daily_snatch_max : input.daily_clean_jerk_max;
