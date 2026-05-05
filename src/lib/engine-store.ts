@@ -234,7 +234,7 @@ export function useEngine(): EngineState {
   const s = useSyncExternalStore(
     engineStore.subscribe,
     engineStore.get,
-    engineStore.get,
+    () => defaultState, // SSR snapshot — avoid hydration mismatch from localStorage
   );
   // Auto-generate on first mount if missing
   useEffect(() => {
