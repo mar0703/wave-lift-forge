@@ -9,17 +9,20 @@ import {
   type WorkoutOutput,
   type ExerciseBlock,
 } from "./training-engine";
-import { detectProblems, selectCorrectives } from "./diagnostics";
+import { detectProblems, selectCorrectives, getPrimaryProblem } from "./diagnostics";
 import { getExerciseById } from "./exercise-db";
 
 export interface AugmentInput extends EngineInput {
   user_maxes: Record<string, number>;
+  correction_state?: Record<string, number>;
 }
 
 export interface AugmentedWorkout extends WorkoutOutput {
   detected_problems: string[];
   injected_exercises: string[];
   problem_focus: string[];
+  primary_problem?: string;
+  primary_problem_sessions?: number;
 }
 
 const CLEAN_VOLUME_BOOST = 1.25;
@@ -52,9 +55,12 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
     return { ...ex, sets };
   });
 
-  // 2) Inject corrective exercises (skip ones already present by id).
+  // 2) Inject corrective exercises focused on the single most urgent problem.
+  const correctionState = input.correction_state || {};
+  const primary = getPrimaryProblem(problems, correctionState);
+  const focusProblems = primary ? [primary] : problems;
   const presentIds = new Set(exercises.map((e) => e.exercise_id));
-  const correctiveIds = selectCorrectives(problems).slice(0, 3);
+  const correctiveIds = selectCorrectives(focusProblems).slice(0, 3);
   const injected: string[] = [];
   const intensity = base.adjusted_intensity / 100;
 
@@ -88,6 +94,10 @@ export function generateAdaptiveWorkout(input: AugmentInput): AugmentedWorkout {
     detected_problems: problems,
     injected_exercises: injected,
     problem_focus: problems.map((p) => PROBLEM_FOCUS[p] || p),
+    primary_problem: primary,
+    primary_problem_sessions: primary
+      ? Math.round(correctionState[primary] || 0)
+      : undefined,
     notes: [
       ...base.notes,
       ...(problems.length ? [`Detected weaknesses: ${problems.join(", ")}`] : []),
