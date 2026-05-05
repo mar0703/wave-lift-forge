@@ -112,6 +112,8 @@ function ProfileScreen() {
         </div>
       </section>
 
+      <ProfileAssessmentSection />
+
       <Button onClick={() => engineStore.generate()} className="w-full h-14 font-black uppercase tracking-wider">
         {t("regenerate_workout")}
       </Button>
