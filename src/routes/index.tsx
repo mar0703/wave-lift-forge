@@ -25,7 +25,7 @@ function focusFor(intensity: number) {
 
 function Dashboard() {
   const { workout, input } = useEngine();
-  if (!workout) return <Page title="Iron Method"><p>Loading…</p></Page>;
+  if (!workout) return <Page title="Today"><p>Loading…</p></Page>;
   const f = focusFor(workout.adjusted_intensity);
   const totalSets = workout.exercises.reduce((a, e) => a + e.sets, 0);
 
