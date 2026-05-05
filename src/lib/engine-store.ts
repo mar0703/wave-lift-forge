@@ -129,7 +129,11 @@ export const engineStore = {
   generatePlain() {
     setState({ workout: generateWorkout(state.input), adaptation: null });
   },
-  adapt(success_rate: number, average_RPE: number) {
+  adapt(
+    success_rate: number,
+    average_RPE: number,
+    exerciseResults: ExerciseResult[] = [],
+  ) {
     if (!state.workout) return;
     const result = postWorkoutAdaptation({
       success_rate,
@@ -151,23 +155,41 @@ export const engineStore = {
       average_RPE,
       total_sets,
     };
-    // Update correction memory: bump every detected problem; decay the
-    // primary one when the session went well (success > 90% & RPE < 7).
-    const detected =
-      (state.workout as AugmentedWorkout).detected_problems || [];
-    const primary = (state.workout as AugmentedWorkout).primary_problem;
+    // Per-exercise correction memory update (no global decay).
     const nextCorrection: Record<string, number> = { ...state.correction_state };
-    for (const p of detected) {
-      nextCorrection[p] = (nextCorrection[p] || 0) + 1;
+    const fixPerformance: FixPerformance[] = [];
+    const injectedNames = new Set(
+      (state.workout as AugmentedWorkout).injected_exercises || [],
+    );
+
+    for (const r of exerciseResults) {
+      const related = getProblemsFromExercise(r.exercise_id);
+      const struggling = r.success_rate < 80 || r.avg_rpe > 8;
+      for (const p of related) {
+        if (struggling) {
+          nextCorrection[p] = (nextCorrection[p] || 0) + 1.5;
+        } else {
+          nextCorrection[p] = (nextCorrection[p] || 0) * 0.7;
+        }
+      }
+      const ex = getExerciseById(r.exercise_id);
+      if (ex && injectedNames.has(ex.name_en)) {
+        fixPerformance.push({
+          exercise_id: r.exercise_id,
+          name: ex.name_en,
+          status: struggling ? "struggling" : "ok",
+          success_rate: r.success_rate,
+          avg_rpe: r.avg_rpe,
+        });
+      }
     }
-    if (primary && success_rate > 90 && average_RPE < 7) {
-      nextCorrection[primary] = (nextCorrection[primary] || 0) * 0.7;
-    }
+
     setState({
       adaptation: result,
       history: [log, ...state.history].slice(0, 50),
       input: { ...state.input, fatigue_score: result.new_fatigue_score },
       correction_state: nextCorrection,
+      fix_performance: fixPerformance,
     });
   },
   reset() {
