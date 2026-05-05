@@ -81,3 +81,26 @@ export function correctivesForProblems(problems: string[]): string[] {
   }
   return out;
 }
+
+// Score every exercise by how well its `fixes` cover the given problems
+// (+2 per matching fix, +1 bonus when the exercise phase matches the
+// problem's phase). Returns the top 3 exercise ids.
+export function selectCorrectives(problems: string[]): string[] {
+  const scored: Record<string, number> = {};
+
+  for (const ex of EXERCISE_DB) {
+    let score = 0;
+
+    for (const p of problems) {
+      if (ex.fixes?.includes(p)) score += 2;
+      if (PROBLEM_PHASE_MAP[p] === ex.phase) score += 1;
+    }
+
+    if (score > 0) scored[ex.id] = score;
+  }
+
+  return Object.entries(scored)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([id]) => id);
+}
