@@ -119,12 +119,13 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
     notes.push("Mesomorph: balanced loading");
   }
 
+  const dosha = detectDosha(input.profile_assessment);
   let volumeMultiplier = 1;
-  if (input.dosha === "vata") {
+  if (dosha === "vata") {
     adjusted *= 0.95;
     volumeMultiplier = 1.1;
     notes.push("Vata: −5% intensity, +10% volume");
-  } else if (input.dosha === "pitta") {
+  } else if (dosha === "pitta") {
     notes.push("Pitta: keep intensity, occasional deload");
   } else {
     volumeMultiplier = 1.15;
