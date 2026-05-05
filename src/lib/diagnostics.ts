@@ -28,6 +28,16 @@ export const PROBLEM_MAP: Record<string, string[]> = {
   weak_pull: ["snatch_pull", "clean_pull"],
 };
 
+// Problem id → primary technical phase the problem belongs to.
+export const PROBLEM_PHASE_MAP: Record<string, "pull" | "transition" | "receive" | "recovery"> = {
+  early_arm_bend: "pull",
+  no_extension: "transition",
+  bar_drift: "pull",
+  slow_pull_under: "receive",
+  weak_legs: "recovery",
+  poor_position: "pull",
+};
+
 export function detectProblems(maxes: Record<string, number>): string[] {
   const problems: string[] = [];
 
