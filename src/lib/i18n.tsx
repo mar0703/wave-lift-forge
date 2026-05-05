@@ -209,10 +209,10 @@ function subscribe(cb: () => void): () => void {
  * return "en". After mount, real language from localStorage is applied.
  */
 export function useLang(): Lang {
-  const lang = useSyncExternalStore(
+  const lang = useSyncExternalStore<Lang>(
     subscribe,
     () => currentLang,
-    () => "en",
+    () => "en" as Lang,
   );
   // Hydrate from localStorage on mount (once)
   useEffect(() => {
