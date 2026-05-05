@@ -6,6 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { BodyType, Dosha } from "@/lib/training-engine";
+import { LANGS, useLang, setLang, type Lang } from "@/lib/i18n";
+
+const LANG_LABEL: Record<Lang, string> = { en: "EN", pl: "PL", ru: "RU" };
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
