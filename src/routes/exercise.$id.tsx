@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Page, SectionTitle } from "@/components/Page";
-import { EXERCISE_CATALOG, getExerciseById } from "@/lib/exercise-catalog";
+import { EXERCISE_DB, getExerciseById, getExerciseByName } from "@/lib/exercise-db";
 import { useEngine } from "@/lib/engine-store";
 
 export const Route = createFileRoute("/exercise/$id")({
@@ -16,16 +16,14 @@ export const Route = createFileRoute("/exercise/$id")({
 function ExerciseDetail() {
   const { id } = Route.useParams();
   const { workout } = useEngine();
-  // Try direct id, then by slugified name
-  const cat =
+  const ex =
     getExerciseById(id) ??
-    EXERCISE_CATALOG.find((e) => e.name.toLowerCase().replace(/\s|&/g, "_") === id);
+    getExerciseByName(id.replace(/_/g, " ")) ??
+    EXERCISE_DB.find((e) => e.id === id);
 
-  const block = workout?.exercises.find(
-    (e) => e.exercise.toLowerCase().replace(/\s|&/g, "_") === id || e.exercise.toLowerCase() === cat?.name.toLowerCase(),
-  );
+  const block = workout?.exercises.find((b) => b.exercise_id === ex?.id);
 
-  if (!cat) {
+  if (!ex) {
     return (
       <Page title="Exercise" subtitle="Not found">
         <p className="text-sm text-muted-foreground">No exercise with id "{id}".</p>
@@ -35,7 +33,7 @@ function ExerciseDetail() {
   }
 
   return (
-    <Page title={cat.name} subtitle={`${cat.group} · ${cat.type}`}>
+    <Page title={ex.name_en} subtitle={`${ex.family} · ${ex.type ?? "—"}`}>
       {block && (
         <section className="rounded-lg border border-border bg-card p-4 grid grid-cols-3 gap-2 text-center">
           <div>
@@ -53,22 +51,24 @@ function ExerciseDetail() {
         </section>
       )}
 
-      <section className="space-y-2">
-        <SectionTitle>Phases</SectionTitle>
-        <div className="flex flex-wrap gap-1.5">
-          {cat.phases.map((p) => (
-            <span key={p} className="text-[10px] uppercase tracking-wide bg-secondary text-secondary-foreground px-2 py-1 rounded">
-              {p}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      {cat.fixes && cat.fixes.length > 0 && (
+      {ex.phases && ex.phases.length > 0 && (
         <section className="space-y-2">
-          <SectionTitle>Targets / fixes</SectionTitle>
+          <SectionTitle>Phases</SectionTitle>
+          <div className="flex flex-wrap gap-1.5">
+            {ex.phases.map((p) => (
+              <span key={p} className="text-[10px] uppercase tracking-wide bg-secondary text-secondary-foreground px-2 py-1 rounded">
+                {p}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {ex.diagnostics && ex.diagnostics.length > 0 && (
+        <section className="space-y-2">
+          <SectionTitle>Diagnostics</SectionTitle>
           <ul className="space-y-1">
-            {cat.fixes.map((f) => (
+            {ex.diagnostics.map((f) => (
               <li key={f} className="text-sm">· {f.replace(/_/g, " ")}</li>
             ))}
           </ul>

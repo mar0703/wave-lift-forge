@@ -66,7 +66,7 @@ function Microcycle() {
           <div className="rounded-lg border border-border bg-card divide-y divide-border">
             {w.exercises.map((e, i) => (
               <div key={i} className="p-3 flex justify-between text-sm">
-                <span className="font-bold">{e.exercise}</span>
+                <span className="font-bold capitalize">{e.name_en}</span>
                 <span className="text-muted-foreground">{e.sets}×{e.reps} · {e.weight_kg}kg</span>
               </div>
             ))}
