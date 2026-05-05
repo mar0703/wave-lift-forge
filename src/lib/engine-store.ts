@@ -126,12 +126,37 @@ export const engineStore = {
     setState({ user_maxes: { ...state.user_maxes, [id]: kg } });
   },
   generate() {
-    const wo = generateAdaptiveWorkout({
+    const base = generateAdaptiveWorkout({
       ...state.input,
       user_maxes: state.user_maxes,
       correction_state: state.correction_state,
     });
-    setState({ workout: wo, adaptation: null });
+    const athlete: AthleteState = {
+      readiness: state.input.readiness,
+      fatigue: state.input.fatigue_score,
+      success_rate: state.history[0]?.success_rate ?? 85,
+      average_RPE: state.history[0]?.average_RPE ?? 7,
+      exercise_results: state.last_session_results,
+      user_maxes: state.user_maxes,
+      correction_state: state.correction_state,
+      training_day_index: state.input.training_day_index,
+      competition_mode: state.competition_mode,
+    };
+    const coach = runCoachPipeline(base, athlete);
+    const merged: AugmentedWorkout = {
+      ...base,
+      exercises: coach.workout.exercises,
+      notes: coach.notes,
+      injected_exercises: coach.injected_exercises.length
+        ? coach.injected_exercises
+        : base.injected_exercises,
+      detected_problems: coach.detected_problems,
+      primary_problem: coach.primary_problem ?? base.primary_problem,
+    };
+    setState({ workout: merged, adaptation: null, coach });
+  },
+  setCompetitionMode(on: boolean) {
+    setState({ competition_mode: on });
   },
   generatePlain() {
     setState({ workout: generateWorkout(state.input), adaptation: null });
