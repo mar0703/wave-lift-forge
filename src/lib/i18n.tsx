@@ -281,6 +281,18 @@ export const DICT: Record<Lang, Record<string, string>> = {
     dosha: "Доша",
     reset_all: "Сбросить всё",
     fatigue_was: "Усталость → {n} (было {o})",
+    profile_assessment: "Оценка профиля",
+    energy_level: "Уровень энергии",
+    recovery_speed: "Скорость восстановления",
+    sleep_quality: "Качество сна",
+    body_tendency: "Склонность тела",
+    body_tendency_lose: "Легко теряет вес",
+    body_tendency_stable: "Стабильно",
+    body_tendency_gain: "Легко набирает вес",
+    stress_response: "Реакция на стресс",
+    stress_anxious: "Тревожность",
+    stress_aggressive: "Агрессия",
+    stress_calm: "Спокойствие",
   },
 };
 
