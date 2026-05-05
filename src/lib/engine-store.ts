@@ -222,6 +222,7 @@ export const engineStore = {
       input: { ...state.input, fatigue_score: result.new_fatigue_score },
       correction_state: nextCorrection,
       fix_performance: fixPerformance,
+      last_session_results: exerciseResults,
     });
   },
   reset() {
