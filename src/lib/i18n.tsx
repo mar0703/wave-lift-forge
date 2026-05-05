@@ -214,10 +214,25 @@ const LANG_KEY = "iron-method-lang";
 let currentLang: Lang = "en";
 const langListeners = new Set<() => void>();
 
+function detectBrowserLang(): Lang {
+  if (typeof navigator === "undefined") return "en";
+  const candidates: string[] = [
+    ...(navigator.languages ?? []),
+    navigator.language ?? "",
+  ].filter(Boolean);
+  for (const raw of candidates) {
+    const code = raw.toLowerCase().split("-")[0];
+    if ((LANGS as readonly string[]).includes(code)) return code as Lang;
+  }
+  return "en";
+}
+
 function loadLang(): Lang {
   if (typeof localStorage === "undefined") return "en";
   const v = localStorage.getItem(LANG_KEY);
-  return (LANGS as readonly string[]).includes(v ?? "") ? (v as Lang) : "en";
+  if ((LANGS as readonly string[]).includes(v ?? "")) return v as Lang;
+  // First visit → auto-detect from browser. Manual setLang() will persist and override.
+  return detectBrowserLang();
 }
 
 export function setLang(lang: Lang): void {
