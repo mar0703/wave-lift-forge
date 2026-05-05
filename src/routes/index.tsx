@@ -1,13 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { generateWorkout, type EngineInput } from "@/lib/training-engine";
+import { generateAdaptiveWorkout, type AugmentInput } from "@/lib/adaptive-workout";
 import { mapWorkoutToUI, type UIWorkout } from "@/lib/workout-adapter";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
-const DEFAULT_INPUT: EngineInput = {
+const DEFAULT_INPUT: AugmentInput = {
   daily_snatch_max: 115,
   daily_clean_jerk_max: 140,
   readiness: 7,
@@ -15,6 +15,16 @@ const DEFAULT_INPUT: EngineInput = {
   body_type: "meso",
   dosha: "pitta",
   training_day_index: 1,
+  user_maxes: {
+    snatch: 115,
+    clean_jerk: 140,
+    jerk_rack: 150,
+    front_squat: 170,
+    back_squat: 195,
+    clean_pull: 150,
+    snatch_pull: 125,
+    power_snatch: 92,
+  },
 };
 
 function ExerciseRow({ name, prescription }: { name: string; prescription: string }) {
@@ -33,7 +43,7 @@ function ExerciseRow({ name, prescription }: { name: string; prescription: strin
 
 function Dashboard() {
   const ui: UIWorkout = useMemo(
-    () => mapWorkoutToUI(generateWorkout(DEFAULT_INPUT)),
+    () => mapWorkoutToUI(generateAdaptiveWorkout(DEFAULT_INPUT)),
     []
   );
 
@@ -87,25 +97,59 @@ function Dashboard() {
             </div>
             <div className="bg-surface-container-high px-3 py-1.5 rounded border border-white/10 flex items-center gap-2">
               <span className="material-symbols-outlined text-secondary-container text-[18px]">
-                timer
+                exercise
               </span>
               <span className="font-data-point text-[14px] text-on-surface">
-                ~{Math.max(45, allExercises.length * 12)} MIN
+                {allExercises.length} LIFTS
               </span>
             </div>
           </div>
 
           <div className="flex flex-col gap-md z-10">
-            {allExercises.slice(0, 3).map((e, i) => (
+            {allExercises.map((e, i) => (
               <ExerciseRow key={i} name={e.name} prescription={e.prescription} />
             ))}
           </div>
 
-          <button className="w-full bg-secondary-container text-black font-h3-section text-[20px] font-black uppercase py-4 rounded-lg flex items-center justify-center gap-2 hover:opacity-90 transition active:scale-[0.98] duration-100 z-10 shadow-[0_0_20px_rgba(254,95,0,0.3)] mt-sm">
+          <Link
+            to="/workout"
+            className="w-full bg-secondary-container text-black font-h3-section text-[20px] font-black uppercase py-4 rounded-lg flex items-center justify-center gap-2 hover:opacity-90 transition active:scale-[0.98] duration-100 z-10 shadow-[0_0_20px_rgba(254,95,0,0.3)] mt-sm"
+          >
             START WORKOUT
             <span className="material-symbols-outlined font-black">play_arrow</span>
-          </button>
+          </Link>
         </section>
+
+        {/* Diagnostics */}
+        {(ui.detected_problems.length > 0 || ui.injected_exercises.length > 0) && (
+          <section className="bg-surface-container-low border border-white/10 rounded-xl p-md flex flex-col gap-sm">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+              Diagnostics
+            </span>
+            {ui.detected_problems.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {ui.detected_problems.map((p) => (
+                  <span
+                    key={p}
+                    className="px-2 py-1 rounded bg-surface-container-high text-[12px] text-on-surface border border-white/10"
+                  >
+                    {p}
+                  </span>
+                ))}
+              </div>
+            )}
+            {ui.problem_focus.length > 0 && (
+              <span className="text-[12px] text-on-surface-variant">
+                Focus: {ui.problem_focus.join(", ")}
+              </span>
+            )}
+            {ui.injected_exercises.length > 0 && (
+              <span className="text-[12px] text-on-surface-variant">
+                Injected: {ui.injected_exercises.join(", ")}
+              </span>
+            )}
+          </section>
+        )}
 
         {/* Quick Stats */}
         <section className="grid grid-cols-2 gap-md">
@@ -170,40 +214,39 @@ function Dashboard() {
             </div>
           </section>
         ))}
+
+        {ui.notes.length > 0 && (
+          <section className="flex flex-col gap-xs">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+              Notes
+            </span>
+            <ul className="text-[12px] text-on-surface-variant list-disc list-inside">
+              {ui.notes.map((n, i) => (
+                <li key={i}>{n}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </main>
 
       {/* BottomNavBar */}
       <nav className="md:hidden bg-[#1E1E1E] fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-20 px-2 border-t border-white/10">
-        <a
+        <Link
+          to="/"
           className="flex flex-col items-center justify-center text-[#FF5F1F] bg-[#2C2C2C] rounded-lg py-1 px-4 transition-all active:scale-90 duration-75"
-          href="#"
         >
           <span className="material-symbols-outlined mb-1" style={{ fontVariationSettings: "'FILL' 1" }}>
             grid_view
           </span>
           <span className="font-['Lexend'] font-bold text-[10px] tracking-widest">DASHBOARD</span>
-        </a>
-        <a
+        </Link>
+        <Link
+          to="/workout"
           className="flex flex-col items-center justify-center text-neutral-500 py-1 px-4 hover:text-white transition-all active:scale-90 duration-75"
-          href="#"
         >
           <span className="material-symbols-outlined mb-1">fitness_center</span>
           <span className="font-['Lexend'] font-bold text-[10px] tracking-widest">WORKOUT</span>
-        </a>
-        <a
-          className="flex flex-col items-center justify-center text-neutral-500 py-1 px-4 hover:text-white transition-all active:scale-90 duration-75"
-          href="#"
-        >
-          <span className="material-symbols-outlined mb-1">leaderboard</span>
-          <span className="font-['Lexend'] font-bold text-[10px] tracking-widest">ANALYTICS</span>
-        </a>
-        <a
-          className="flex flex-col items-center justify-center text-neutral-500 py-1 px-4 hover:text-white transition-all active:scale-90 duration-75"
-          href="#"
-        >
-          <span className="material-symbols-outlined mb-1">person</span>
-          <span className="font-['Lexend'] font-bold text-[10px] tracking-widest">PROFILE</span>
-        </a>
+        </Link>
       </nav>
     </div>
   );
