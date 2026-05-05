@@ -197,3 +197,25 @@ export function postWorkoutAdaptation(p: PostWorkoutInput): AdaptationResult {
     adjustments: adj,
   };
 }
+
+// Auto-detect dosha from profile assessment answers.
+export function detectDosha(profile: ProfileAssessment): Dosha {
+  let vata = 0;
+  let pitta = 0;
+  let kapha = 0;
+
+  if (profile.energy_level < 5) vata += 2;
+  if (profile.recovery_speed < 5) vata += 2;
+  if (profile.stress_response === "anxious") vata += 2;
+
+  if (profile.energy_level > 7) pitta += 2;
+  if (profile.stress_response === "aggressive") pitta += 2;
+
+  if (profile.body_tendency === "gain_easily") kapha += 3;
+  if (profile.recovery_speed > 7) kapha += 1;
+
+  const max = Math.max(vata, pitta, kapha);
+  if (max === vata) return "vata";
+  if (max === pitta) return "pitta";
+  return "kapha";
+}
