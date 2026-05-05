@@ -31,7 +31,7 @@ function focusKey(intensity: number): "technique" | "strength" | "heavy_peak" {
 
 function Dashboard() {
   const t = useT();
-  const { workout, input } = useEngine();
+  const { workout, input, fix_performance } = useEngine();
   if (!workout) return <Page title={t("today")}><p>{t("loading")}</p></Page>;
   const fk = focusKey(workout.adjusted_intensity);
   const tone = fk === "technique" ? "text-emerald-400" : fk === "strength" ? "text-amber-400" : "text-red-400";
