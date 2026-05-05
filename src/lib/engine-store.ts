@@ -79,6 +79,9 @@ const defaultState: EngineState = {
   history: [],
   correction_state: {},
   fix_performance: [],
+  coach: null,
+  competition_mode: false,
+  last_session_results: [],
 };
 
 let state: EngineState = load();
