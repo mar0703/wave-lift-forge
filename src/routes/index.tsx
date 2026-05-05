@@ -31,7 +31,7 @@ function focusKey(intensity: number): "technique" | "strength" | "heavy_peak" {
 
 function Dashboard() {
   const t = useT();
-  const { workout, input, fix_performance } = useEngine();
+  const { workout, input, fix_performance, coach, competition_mode } = useEngine();
   if (!workout) return <Page title={t("today")}><p>{t("loading")}</p></Page>;
   const fk = focusKey(workout.adjusted_intensity);
   const tone = fk === "technique" ? "text-emerald-400" : fk === "strength" ? "text-amber-400" : "text-red-400";
@@ -164,13 +164,45 @@ function Dashboard() {
         </section>
       )}
 
-      <Button
-        variant="outline"
-        onClick={() => engineStore.generate()}
-        className="w-full h-12 font-bold uppercase tracking-wider"
-      >
-        {t("regenerate")}
-      </Button>
+      {coach && (
+        <section className="space-y-2 rounded-xl border border-border bg-card p-4">
+          <SectionTitle>Coach pipeline</SectionTitle>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Focus area
+          </div>
+          <div className="font-black capitalize">{humanize(coach.focus_area)}</div>
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {coach.adjustments_applied.map((m, i) => (
+              <span
+                key={i}
+                className="text-[10px] uppercase tracking-widest font-bold border border-border rounded px-2 py-0.5"
+              >
+                {m}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          variant={competition_mode ? "default" : "outline"}
+          onClick={() => {
+            engineStore.setCompetitionMode(!competition_mode);
+            engineStore.generate();
+          }}
+          className="flex-1 h-12 font-bold uppercase tracking-wider"
+        >
+          {competition_mode ? "Comp ON" : "Comp OFF"}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => engineStore.generate()}
+          className="flex-1 h-12 font-bold uppercase tracking-wider"
+        >
+          {t("regenerate")}
+        </Button>
+      </div>
     </Page>
   );
 }
