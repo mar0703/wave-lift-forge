@@ -22,7 +22,7 @@ export const Route = createFileRoute("/profile")({
   component: ProfileScreen,
 });
 
-const DOSHAS: Dosha[] = ["vata", "pitta", "kapha"];
+
 
 function ProfileScreen() {
   const t = useT();
