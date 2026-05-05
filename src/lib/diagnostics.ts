@@ -72,16 +72,6 @@ export function detectProblems(maxes: Record<string, number>): string[] {
   return [...new Set(problems)];
 }
 
-export function correctivesForProblems(problems: string[]): string[] {
-  const out: string[] = [];
-  for (const p of problems) {
-    for (const id of PROBLEM_MAP[p] ?? []) {
-      if (!out.includes(id)) out.push(id);
-    }
-  }
-  return out;
-}
-
 // Score every exercise by how well its `fixes` cover the given problems
 // (+2 per matching fix, +1 bonus when the exercise phase matches the
 // problem's phase). Returns the top 3 exercise ids.
