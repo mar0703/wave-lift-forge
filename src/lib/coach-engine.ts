@@ -381,8 +381,26 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
   exercises = norm.exercises;
   allNotes.push(...norm.notes);
 
-  const focus_area =
-    primary || (state.competition_mode ? "competition" : phaseFor(state.training_day_index));
+  // §15 Failure protection — fallback to baseWorkout if structure invalid.
+  const hasClassic = exercises.some((e) => e.family === "snatch" || e.family === "clean");
+  const onlyCorrective = exercises.length > 0 && exercises.every((e) => {
+    const def = getExerciseById(e.exercise_id);
+    return def?.role === "corrective";
+  });
+  if (!exercises.length || !hasClassic || onlyCorrective) {
+    exercises = base.exercises.map((ex) => ({
+      ...ex,
+      intensity_pct: round25pct(clampIntensity(ex.intensity_pct)),
+    }));
+    allNotes.push("⚠ Fallback to base workout (failure protection)");
+  }
+
+  // §14 focus_area MUST never be undefined.
+  const phase = phaseFor(state.training_day_index);
+  const focus_area: string =
+    primary ||
+    (state.competition_mode ? "competition" : phase) ||
+    "general development";
 
   return {
     workout: { ...base, exercises, notes: allNotes },
