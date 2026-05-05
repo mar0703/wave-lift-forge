@@ -23,9 +23,9 @@ export interface EngineInput {
   readiness: number; // 1-10
   fatigue_score: number; // 0-100
   body_type: BodyType;
-  dosha: Dosha;
+  dosha?: Dosha;
   training_day_index: 1 | 2 | 3 | 4 | 5;
-  profile_assessment?: ProfileAssessment;
+  profile_assessment: ProfileAssessment;
 }
 
 export interface PostWorkoutInput {
@@ -119,12 +119,13 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
     notes.push("Mesomorph: balanced loading");
   }
 
+  const dosha = detectDosha(input.profile_assessment);
   let volumeMultiplier = 1;
-  if (input.dosha === "vata") {
+  if (dosha === "vata") {
     adjusted *= 0.95;
     volumeMultiplier = 1.1;
     notes.push("Vata: −5% intensity, +10% volume");
-  } else if (input.dosha === "pitta") {
+  } else if (dosha === "pitta") {
     notes.push("Pitta: keep intensity, occasional deload");
   } else {
     volumeMultiplier = 1.15;
@@ -154,7 +155,7 @@ export function generateWorkout(input: EngineInput): WorkoutOutput {
     adjusted_intensity: Math.round(adjusted * 1000) / 10,
     fatigue_modifier: fMod,
     body_type: input.body_type,
-    dosha: input.dosha,
+    dosha,
     notes,
     exercises,
   };
