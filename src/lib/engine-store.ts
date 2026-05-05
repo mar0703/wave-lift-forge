@@ -44,6 +44,7 @@ export interface EngineState {
   adaptation: AdaptationResult | null;
   history: SessionLog[];
   correction_state: Record<string, number>;
+  fix_performance: FixPerformance[];
 }
 
 const defaultState: EngineState = {
@@ -73,6 +74,7 @@ const defaultState: EngineState = {
   adaptation: null,
   history: [],
   correction_state: {},
+  fix_performance: [],
 };
 
 let state: EngineState = load();
