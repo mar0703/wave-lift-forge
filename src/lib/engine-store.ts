@@ -17,6 +17,7 @@ import {
   type ExerciseResult,
 } from "./diagnostics";
 import { getExerciseById } from "./exercise-db";
+import { runCoachPipeline, type AthleteState, type CoachOutput } from "./coach-engine";
 
 export interface FixPerformance {
   exercise_id: string;
