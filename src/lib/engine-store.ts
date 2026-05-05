@@ -46,6 +46,9 @@ export interface EngineState {
   history: SessionLog[];
   correction_state: Record<string, number>;
   fix_performance: FixPerformance[];
+  coach: CoachOutput | null;
+  competition_mode: boolean;
+  last_session_results: ExerciseResult[];
 }
 
 const defaultState: EngineState = {
