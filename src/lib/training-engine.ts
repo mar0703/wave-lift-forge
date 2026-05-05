@@ -6,6 +6,17 @@ import { getExerciseById, type ExerciseGroup } from "./exercise-db";
 export type BodyType = "ecto" | "meso" | "endo";
 export type Dosha = "vata" | "pitta" | "kapha";
 
+export type BodyTendency = "lose_easily" | "stable" | "gain_easily";
+export type StressResponse = "anxious" | "aggressive" | "calm";
+
+export interface ProfileAssessment {
+  energy_level: number; // 1-10
+  recovery_speed: number; // 1-10
+  body_tendency: BodyTendency;
+  stress_response: StressResponse;
+  sleep_quality: number; // 1-10
+}
+
 export interface EngineInput {
   daily_snatch_max: number;
   daily_clean_jerk_max: number;
@@ -14,6 +25,7 @@ export interface EngineInput {
   body_type: BodyType;
   dosha: Dosha;
   training_day_index: 1 | 2 | 3 | 4 | 5;
+  profile_assessment?: ProfileAssessment;
 }
 
 export interface PostWorkoutInput {
