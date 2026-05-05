@@ -107,6 +107,7 @@ export const engineStore = {
     const wo = generateAdaptiveWorkout({
       ...state.input,
       user_maxes: state.user_maxes,
+      correction_state: state.correction_state,
     });
     setState({ workout: wo, adaptation: null });
   },
@@ -135,10 +136,23 @@ export const engineStore = {
       average_RPE,
       total_sets,
     };
+    // Update correction memory: bump every detected problem; decay the
+    // primary one when the session went well (success > 90% & RPE < 7).
+    const detected =
+      (state.workout as AugmentedWorkout).detected_problems || [];
+    const primary = (state.workout as AugmentedWorkout).primary_problem;
+    const nextCorrection: Record<string, number> = { ...state.correction_state };
+    for (const p of detected) {
+      nextCorrection[p] = (nextCorrection[p] || 0) + 1;
+    }
+    if (primary && success_rate > 90 && average_RPE < 7) {
+      nextCorrection[primary] = (nextCorrection[primary] || 0) * 0.7;
+    }
     setState({
       adaptation: result,
       history: [log, ...state.history].slice(0, 50),
       input: { ...state.input, fatigue_score: result.new_fatigue_score },
+      correction_state: nextCorrection,
     });
   },
   reset() {
