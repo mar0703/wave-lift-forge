@@ -14,8 +14,8 @@ export const RATIOS = {
     issue_low: "weak_legs",
   },
   clean_pull_vs_clean: {
-    normal_min: 1.0,
-    normal_max: 1.15,
+    normal_min: 1.05,
+    normal_max: 1.2,
     issue_low: "weak_pull",
   },
 } as const;
