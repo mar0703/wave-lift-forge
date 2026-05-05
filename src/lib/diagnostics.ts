@@ -1,6 +1,8 @@
 // Strength-ratio diagnostics. Pure data → problem ids.
 // No string matching on exercise names — works on user max ids.
 
+import { EXERCISE_DB } from "./exercise-db";
+
 export const RATIOS = {
   clean_vs_jerk: {
     normal_min: 0.95,
