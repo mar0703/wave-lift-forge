@@ -14,7 +14,7 @@ export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
       { title: "Profile — Iron Method" },
-      { name: "description", content: "Set your current maxes, body type, dosha and recovery state." },
+      { name: "description", content: "Set your current maxes, body type and recovery state." },
       { property: "og:title", content: "Athlete Profile — Iron Method" },
       { property: "og:description", content: "Configure inputs that drive your adaptive training engine." },
     ],
