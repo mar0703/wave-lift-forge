@@ -27,8 +27,25 @@ const DOSHAS: Dosha[] = ["vata", "pitta", "kapha"];
 
 function ProfileScreen() {
   const { input, user_maxes } = useEngine();
+  const lang = useLang();
   return (
     <Page title="Profile" subtitle="Athlete inputs">
+      <section className="space-y-3">
+        <SectionTitle>Language</SectionTitle>
+        <div className="grid grid-cols-3 gap-2">
+          {LANGS.map((l) => (
+            <Button
+              key={l}
+              variant={lang === l ? "default" : "outline"}
+              className="h-12 font-bold uppercase tracking-widest"
+              onClick={() => setLang(l)}
+            >
+              {LANG_LABEL[l]}
+            </Button>
+          ))}
+        </div>
+      </section>
+
       <section className="space-y-4">
         <SectionTitle>Daily maxes</SectionTitle>
         <div className="grid grid-cols-2 gap-3">
