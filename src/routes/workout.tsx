@@ -50,7 +50,17 @@ function WorkoutScreen() {
     setUi((p) => p.map((s, k) => (k === i ? { ...s, done: s.done.map((v, m) => (m === j ? !v : v)) } : s)));
 
   const submit = () => {
-    engineStore.adapt(post.success_rate, post.average_RPE);
+    const exerciseResults = workout.exercises.map((e, i) => {
+      const sets = ui[i]?.done ?? [];
+      const total = sets.length || e.sets;
+      const doneCount = sets.filter(Boolean).length;
+      return {
+        exercise_id: e.exercise_id,
+        success_rate: total ? (doneCount / total) * 100 : 0,
+        avg_rpe: doneCount ? post.average_RPE : 0,
+      };
+    });
+    engineStore.adapt(post.success_rate, post.average_RPE, exerciseResults);
     setSubmitted(true);
   };
 
