@@ -92,6 +92,26 @@ function Dashboard() {
           (workout as { injected_exercises: string[] }).injected_exercises.length > 0) && (
           <section className="space-y-3 rounded-xl border border-border bg-card p-4">
             <SectionTitle>Diagnostics</SectionTitle>
+
+            {(workout as { primary_problem?: string }).primary_problem && (
+              <div className="rounded-lg border border-border bg-background p-3 space-y-1">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Focus today
+                </div>
+                <div className="text-base font-black">
+                  {humanize((workout as { primary_problem: string }).primary_problem)}
+                  <span className="ml-2 text-xs font-bold text-muted-foreground">
+                    ({Math.max(
+                      1,
+                      (workout as { primary_problem_sessions?: number })
+                        .primary_problem_sessions || 0,
+                    )}{" "}
+                    sessions)
+                  </span>
+                </div>
+              </div>
+            )}
+
             <ul className="space-y-1 text-sm">
               {(workout as { detected_problems: string[] }).detected_problems.map((p) => {
                 const phase = PROBLEM_PHASE_MAP[p];
@@ -110,11 +130,11 @@ function Dashboard() {
 
             {(workout as { injected_exercises: string[] }).injected_exercises.length > 0 && (
               <>
-                <SectionTitle>Fixes applied</SectionTitle>
+                <SectionTitle>Fix strategy</SectionTitle>
                 <ul className="space-y-1 text-sm">
                   {(workout as { injected_exercises: string[] }).injected_exercises.map((n) => (
                     <li key={n} className="font-bold capitalize">
-                      • {n}
+                      → {n}
                     </li>
                   ))}
                 </ul>
