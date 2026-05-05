@@ -1,7 +1,8 @@
 // ADAPTER LAYER
 // engine -> UI. Pure mapping. Does NOT touch engine logic.
 
-import type { WorkoutOutput, ExerciseBlock } from "./training-engine";
+import type { ExerciseBlock } from "./training-engine";
+import type { AugmentedWorkout } from "./adaptive-workout";
 
 export interface UIExercise {
   name: string;
