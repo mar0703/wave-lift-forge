@@ -1,6 +1,11 @@
 // Single source of truth for every exercise the app knows about.
 // All string-matching logic must go through this DB (no regex on names).
 
+import type {
+  MovementPhase,
+  MovementPosition,
+} from "./weightlifting/movement-model";
+
 export type ExerciseFamily =
   | "snatch"
   | "clean"
@@ -21,6 +26,50 @@ export type ExercisePhase = "pull" | "transition" | "receive" | "recovery";
 
 export type ExerciseGroup = "Main" | "Special" | "General";
 
+// ─────────────────── Movement-intelligence metadata ───────────────────
+
+export type ExerciseVariant =
+  | "classic"
+  | "hang"
+  | "block"
+  | "pause"
+  | "power"
+  | "deficit";
+
+export type ExerciseRole =
+  | "main"
+  | "corrective"
+  | "technical"
+  | "overload"
+  | "accessory";
+
+export type ExerciseIntent =
+  | "max_force"
+  | "speed_strength"
+  | "technical_precision"
+  | "speed_under"
+  | "positional_control"
+  | "competition_execution"
+  | "recovery";
+
+export type ExercisePurpose =
+  | "extension"
+  | "speed"
+  | "timing"
+  | "positioning"
+  | "trajectory"
+  | "receive"
+  | "balance"
+  | "stability";
+
+export type ExerciseFatigueType = "cns" | "local" | "mixed";
+
+export interface TransferProfile {
+  snatch?: number;
+  clean?: number;
+  jerk?: number;
+}
+
 export interface ExerciseDef {
   id: string;
   name_en: string;
@@ -34,7 +83,35 @@ export interface ExerciseDef {
   phases?: string[];
   diagnostics?: string[];
   fixes?: string[]; // what problems this exercise solves
+
+  // ─── Movement-intelligence metadata (all optional, back-compat safe) ───
+  variant?: ExerciseVariant;
+  role?: ExerciseRole;
+  intent?: ExerciseIntent;
+  primary_phase?: MovementPhase;
+  secondary_phases?: MovementPhase[];
+  primary_position?: MovementPosition;
+  purpose?: ExercisePurpose;
+
+  // Why / what / when meaning
+  why?: string;            // why this exercise exists
+  improves?: string[];     // what it improves
+  use_when?: string[];     // when to use
+  avoid_when?: string[];   // when to avoid
+
+  // Fatigue model — 1..10 scales
+  fatigue_cost?: number;          // immediate session cost
+  recovery_demand?: number;       // days/units to recover
+  fatigue_type?: ExerciseFatigueType;
+
+  // Skill model — 1..10 scales
+  technical_complexity?: number;
+  skill_stability_requirement?: number;
+
+  // Transfer to competition lifts — 0..1 coefficients
+  transfer_to?: TransferProfile;
 }
+
 
 export const EXERCISE_DB: ExerciseDef[] = [
   // ───────────────────────────── SNATCH FAMILY ─────────────────────────────
