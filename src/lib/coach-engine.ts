@@ -392,13 +392,38 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
   const injected: string[] = [];
   let primary: string | undefined;
 
+export interface CoachOutput {
+  workout: WorkoutOutput;
+  adjustments_applied: string[];
+  detected_problems: string[];
+  focus_area: string;
+  primary_problem?: string;
+  root_cause?: string;
+  correction_stage?: string;
+  correction_strategy?: string[];
+  selected_correctives?: string[];
+  trend?: string;
+  injected_exercises: string[];
+  notes: string[];
+}
+
+export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): CoachOutput {
+  const detected = detectProblems(state.user_maxes);
+  const applied: string[] = [];
+  const allNotes: string[] = [...base.notes];
+  const removed = new Set<string>();
+  let exercises: ExerciseBlock[] = [...base.exercises];
+  const injected: string[] = [];
+  let primary: string | undefined;
+
   const periodization = periodizationModule(state);
   const strength = strengthModule(state);
-  const technique = techniqueModule(state, detected);
   const psych = psychologyModule(state);
+  const technique = techniqueModule(state, detected);
   const comp = competitionModule(state);
 
-  const sequence: Adjustment[] = [periodization, strength, technique, psych];
+  // §9 Order: periodization → fatigue/readiness (psych+strength) → correction → competition
+  const sequence: Adjustment[] = [periodization, strength, psych, technique];
   if (comp) sequence.push(comp);
 
   for (const adj of sequence) {
@@ -409,7 +434,8 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
     if (adj.notes?.length) allNotes.push(...adj.notes);
     applied.push(adj.module || "module");
   }
-  primary = (technique as ReturnType<typeof techniqueModule>).primary;
+  primary = technique.primary;
+  const decision = technique.decision;
 
   const norm = normalize(exercises, base, state);
   exercises = norm.exercises;
@@ -442,6 +468,11 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
     detected_problems: detected,
     focus_area,
     primary_problem: primary,
+    root_cause: decision?.root_cause,
+    correction_stage: decision?.correction_stage,
+    correction_strategy: decision?.correction_strategy,
+    selected_correctives: decision?.selected_correctives.map((c) => c.exercise_id),
+    trend: decision?.trend,
     injected_exercises: injected,
     notes: allNotes,
   };
