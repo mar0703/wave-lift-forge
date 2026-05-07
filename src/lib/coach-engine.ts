@@ -8,13 +8,16 @@ import { buildBlock } from "./training-engine";
 import { getExerciseById } from "./exercise-db";
 import {
   detectProblems,
-  selectCorrectives,
-  getSafeCorrectives,
-  getPrimaryProblem,
   getProblemsFromExercise,
   PROBLEM_PHASE_MAP,
   type ExerciseResult,
 } from "./diagnostics";
+import {
+  decideCorrection,
+  type CorrectionContext,
+  type CorrectionDecision,
+  type TrainingPhase as CETrainingPhase,
+} from "./weightlifting/correction-engine";
 
 // ─────────────────── 1. Central state ───────────────────
 export interface AthleteState {
@@ -194,34 +197,63 @@ export function strengthModule(s: AthleteState): Adjustment {
   return adj;
 }
 
+function trainingPhaseFor(s: AthleteState): CETrainingPhase {
+  if (s.competition_mode) return "peak";
+  const p = phaseFor(s.training_day_index);
+  return p as CETrainingPhase;
+}
+
 export function techniqueModule(
   s: AthleteState,
   detected: string[],
-): Adjustment & { primary?: string; correctives: string[] } {
-  const adj: Adjustment & { primary?: string; correctives: string[] } = {
+): Adjustment & { decision?: CorrectionDecision; primary?: string; correctives: string[] } {
+  const adj: Adjustment & { decision?: CorrectionDecision; primary?: string; correctives: string[] } = {
     module: "Technique",
     correctives: [],
     notes: [],
   };
 
   const activeProblems = new Set<string>(detected);
+  const exerciseResultsMap: Record<string, { success_rate: number; avg_rpe: number }> = {};
   for (const r of s.exercise_results) {
+    exerciseResultsMap[r.exercise_id] = { success_rate: r.success_rate, avg_rpe: r.avg_rpe };
     const related = getProblemsFromExercise(r.exercise_id);
     if (r.success_rate < 80 || r.avg_rpe > 8) related.forEach((p) => activeProblems.add(p));
   }
 
   if (!activeProblems.size) return adj;
-  const primary = getPrimaryProblem([...activeProblems], s.correction_state);
-  adj.primary = primary;
 
-  const ranked = selectCorrectives(primary ? [primary] : [...activeProblems]);
-  const correctives = getSafeCorrectives(ranked, s.readiness, s.fatigue).slice(0, 2);
-  adj.correctives = correctives;
-  adj.add_exercises = correctives.map((id) => ({ id, role: "corrective" }));
-  adj.global = { set_intensity_pct: 75 };
+  const ctx: CorrectionContext = {
+    problems: [...activeProblems],
+    correction_state: s.correction_state,
+    exercise_results: exerciseResultsMap,
+    readiness: s.readiness,
+    fatigue: s.fatigue,
+    training_phase: trainingPhaseFor(s),
+  };
+
+  const decision = decideCorrection(ctx);
+  adj.decision = decision;
+  adj.primary = decision.primary_problem || undefined;
+
+  const ids = decision.selected_correctives
+    .map((c) => c.exercise_id)
+    .filter((id) => !!getExerciseById(id))
+    .slice(0, 2);
+  adj.correctives = ids;
+  adj.add_exercises = ids.map((id) => ({ id, role: "corrective" }));
+
+  // Trend / stage-aware intensity cap
+  let cap = 75;
+  if (decision.trend === "worsening") cap = 70;
+  else if (decision.correction_stage === "integration") cap = 80;
+  else if (decision.correction_stage === "automation") cap = 85;
+  adj.global = { set_intensity_pct: cap };
+
   adj.notes!.push(
-    `Technique focus: ${primary || "general"} → cap @ 75%, inject ${correctives.length} corrective(s)`,
+    `Technique focus: ${decision.primary_problem || "general"}${decision.root_cause ? ` (root: ${decision.root_cause})` : ""} → cap @ ${cap}%, inject ${ids.length} corrective(s)`,
   );
+  if (decision.correction_strategy.length) adj.notes!.push(...decision.correction_strategy);
   return adj;
 }
 
@@ -341,12 +373,18 @@ function priorityOf(e: ExerciseBlock): number {
 }
 
 // ─────────────────── 5. Pipeline ───────────────────
+
 export interface CoachOutput {
   workout: WorkoutOutput;
   adjustments_applied: string[];
   detected_problems: string[];
   focus_area: string;
   primary_problem?: string;
+  root_cause?: string;
+  correction_stage?: string;
+  correction_strategy?: string[];
+  selected_correctives?: string[];
+  trend?: string;
   injected_exercises: string[];
   notes: string[];
 }
@@ -362,11 +400,12 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
 
   const periodization = periodizationModule(state);
   const strength = strengthModule(state);
-  const technique = techniqueModule(state, detected);
   const psych = psychologyModule(state);
+  const technique = techniqueModule(state, detected);
   const comp = competitionModule(state);
 
-  const sequence: Adjustment[] = [periodization, strength, technique, psych];
+  // §9 Order: periodization → fatigue/readiness (psych+strength) → correction → competition
+  const sequence: Adjustment[] = [periodization, strength, psych, technique];
   if (comp) sequence.push(comp);
 
   for (const adj of sequence) {
@@ -377,7 +416,8 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
     if (adj.notes?.length) allNotes.push(...adj.notes);
     applied.push(adj.module || "module");
   }
-  primary = (technique as ReturnType<typeof techniqueModule>).primary;
+  primary = technique.primary;
+  const decision = technique.decision;
 
   const norm = normalize(exercises, base, state);
   exercises = norm.exercises;
@@ -410,6 +450,11 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
     detected_problems: detected,
     focus_area,
     primary_problem: primary,
+    root_cause: decision?.root_cause,
+    correction_stage: decision?.correction_stage,
+    correction_strategy: decision?.correction_strategy,
+    selected_correctives: decision?.selected_correctives.map((c) => c.exercise_id),
+    trend: decision?.trend,
     injected_exercises: injected,
     notes: allNotes,
   };
