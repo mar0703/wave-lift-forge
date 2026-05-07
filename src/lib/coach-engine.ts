@@ -213,7 +213,8 @@ export function techniqueModule(
   const primary = getPrimaryProblem([...activeProblems], s.correction_state);
   adj.primary = primary;
 
-  const correctives = selectCorrectives(primary ? [primary] : [...activeProblems]).slice(0, 2);
+  const ranked = selectCorrectives(primary ? [primary] : [...activeProblems]);
+  const correctives = getSafeCorrectives(ranked, s.readiness, s.fatigue).slice(0, 2);
   adj.correctives = correctives;
   adj.add_exercises = correctives.map((id) => ({ id, role: "corrective" }));
   adj.global = { set_intensity_pct: 75 };
