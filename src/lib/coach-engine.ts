@@ -373,24 +373,6 @@ function priorityOf(e: ExerciseBlock): number {
 }
 
 // ─────────────────── 5. Pipeline ───────────────────
-export interface CoachOutput {
-  workout: WorkoutOutput;
-  adjustments_applied: string[];
-  detected_problems: string[];
-  focus_area: string;
-  primary_problem?: string;
-  injected_exercises: string[];
-  notes: string[];
-}
-
-export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): CoachOutput {
-  const detected = detectProblems(state.user_maxes);
-  const applied: string[] = [];
-  const allNotes: string[] = [...base.notes];
-  const removed = new Set<string>();
-  let exercises: ExerciseBlock[] = [...base.exercises];
-  const injected: string[] = [];
-  let primary: string | undefined;
 
 export interface CoachOutput {
   workout: WorkoutOutput;
