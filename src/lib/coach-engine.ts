@@ -9,6 +9,7 @@ import { getExerciseById } from "./exercise-db";
 import {
   detectProblems,
   selectCorrectives,
+  getSafeCorrectives,
   getPrimaryProblem,
   getProblemsFromExercise,
   PROBLEM_PHASE_MAP,
