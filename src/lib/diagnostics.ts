@@ -260,8 +260,8 @@ export function getPrimaryProblem(
   if (!problems.length) return undefined;
   const ctx: PrimaryProblemCtx =
     "correction_state" in stateOrCtx
-      ? stateOrCtx
-      : { correction_state: stateOrCtx };
+      ? (stateOrCtx as PrimaryProblemCtx)
+      : { correction_state: stateOrCtx as Record<string, number> };
 
   const scoreFor = (p: string) => {
     const severity = PROBLEM_PRIORITY[p] || 1;
