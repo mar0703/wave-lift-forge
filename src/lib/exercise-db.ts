@@ -251,6 +251,285 @@ export const EXERCISE_DB: ExerciseDef[] = [
   { id: "sled_push", name_en: "sled push", aliases: ["prowler push"], family: "general", type: "accessory", phase: "recovery", difficulty: 2, group: "General", fixes: ["weak_legs", "lack_of_conditioning"] },
 ];
 
+// ─────────────────── Movement-intelligence enrichment ───────────────────
+// Incrementally enriches a curated subset of exercises with biomechanical
+// metadata. Exercises not listed here keep their base shape — fully
+// back-compatible. Add more entries over time without touching IDs.
+
+const ENRICHMENT: Record<string, Partial<ExerciseDef>> = {
+  // ── Classic competition lifts ────────────────────────────────────────
+  snatch: {
+    variant: "classic", role: "main", intent: "competition_execution",
+    primary_phase: "receive", primary_position: "overhead", purpose: "trajectory",
+    why: "Competition movement; trains full neuromuscular pattern.",
+    improves: ["full_pattern", "speed_under", "overhead_stability"],
+    use_when: ["competition_prep", "skill_maintenance"],
+    avoid_when: ["high_fatigue", "low_readiness"],
+    fatigue_cost: 8, recovery_demand: 8, fatigue_type: "cns",
+    technical_complexity: 9, skill_stability_requirement: 9,
+    transfer_to: { snatch: 1.0 },
+  },
+  clean: {
+    variant: "classic", role: "main", intent: "competition_execution",
+    primary_phase: "receive", primary_position: "rack", purpose: "trajectory",
+    fatigue_cost: 8, recovery_demand: 8, fatigue_type: "cns",
+    technical_complexity: 9, skill_stability_requirement: 9,
+    transfer_to: { clean: 1.0 },
+  },
+  clean_and_jerk: {
+    variant: "classic", role: "main", intent: "competition_execution",
+    primary_phase: "receive", primary_position: "overhead", purpose: "trajectory",
+    fatigue_cost: 9, recovery_demand: 9, fatigue_type: "cns",
+    technical_complexity: 9, skill_stability_requirement: 9,
+    transfer_to: { clean: 1.0, jerk: 1.0 },
+  },
+  jerk: {
+    variant: "classic", role: "main", intent: "competition_execution",
+    primary_phase: "lockout", primary_position: "overhead", purpose: "trajectory",
+    fatigue_cost: 7, recovery_demand: 7, fatigue_type: "cns",
+    technical_complexity: 8, skill_stability_requirement: 8,
+    transfer_to: { jerk: 1.0 },
+  },
+
+  // ── Power variants ────────────────────────────────────────────────────
+  power_snatch: {
+    variant: "power", role: "overload", intent: "speed_strength",
+    primary_phase: "extension", primary_position: "power_position", purpose: "extension",
+    fatigue_cost: 6, recovery_demand: 5, fatigue_type: "cns",
+    technical_complexity: 7, skill_stability_requirement: 7,
+    transfer_to: { snatch: 0.7 },
+  },
+  power_clean: {
+    variant: "power", role: "overload", intent: "speed_strength",
+    primary_phase: "extension", primary_position: "power_position", purpose: "extension",
+    fatigue_cost: 6, recovery_demand: 5, fatigue_type: "cns",
+    technical_complexity: 7, skill_stability_requirement: 7,
+    transfer_to: { clean: 0.7 },
+  },
+
+  // ── Hang variants ─────────────────────────────────────────────────────
+  hang_snatch_high: {
+    variant: "hang", role: "technical", intent: "positional_control",
+    primary_phase: "extension", primary_position: "above_knee", purpose: "positioning",
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "mixed",
+    technical_complexity: 7, skill_stability_requirement: 8,
+    transfer_to: { snatch: 0.7 },
+  },
+  hang_snatch_low: {
+    variant: "hang", role: "technical", intent: "positional_control",
+    primary_phase: "first_pull", primary_position: "below_knee", purpose: "positioning",
+    fatigue_cost: 6, recovery_demand: 5, fatigue_type: "mixed",
+    technical_complexity: 8, skill_stability_requirement: 8,
+    transfer_to: { snatch: 0.75 },
+  },
+  hang_clean_high: {
+    variant: "hang", role: "technical", intent: "positional_control",
+    primary_phase: "extension", primary_position: "above_knee", purpose: "positioning",
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "mixed",
+    technical_complexity: 7, skill_stability_requirement: 8,
+    transfer_to: { clean: 0.7 },
+  },
+  hang_clean_low: {
+    variant: "hang", role: "technical", intent: "positional_control",
+    primary_phase: "first_pull", primary_position: "below_knee", purpose: "positioning",
+    fatigue_cost: 6, recovery_demand: 5, fatigue_type: "mixed",
+    technical_complexity: 8, skill_stability_requirement: 8,
+    transfer_to: { clean: 0.75 },
+  },
+
+  // ── Tall / muscle / balance — high skill ─────────────────────────────
+  tall_snatch: {
+    variant: "classic", role: "technical", intent: "speed_under",
+    primary_phase: "pull_under", primary_position: "overhead", purpose: "speed",
+    why: "Trains aggressive pull under the bar with no leg drive.",
+    improves: ["speed_under", "turnover_speed", "timing"],
+    use_when: ["slow_pull_under", "early_arm_bend", "skill_day"],
+    avoid_when: ["low_readiness", "high_fatigue"],
+    fatigue_cost: 3, recovery_demand: 2, fatigue_type: "cns",
+    technical_complexity: 9, skill_stability_requirement: 9,
+    transfer_to: { snatch: 0.55 },
+  },
+  tall_clean: {
+    variant: "classic", role: "technical", intent: "speed_under",
+    primary_phase: "pull_under", primary_position: "rack", purpose: "speed",
+    fatigue_cost: 3, recovery_demand: 2, fatigue_type: "cns",
+    technical_complexity: 9, skill_stability_requirement: 9,
+    transfer_to: { clean: 0.55 },
+  },
+  muscle_snatch: {
+    variant: "classic", role: "technical", intent: "technical_precision",
+    primary_phase: "extension", primary_position: "power_position", purpose: "trajectory",
+    fatigue_cost: 4, recovery_demand: 3, fatigue_type: "mixed",
+    technical_complexity: 6, skill_stability_requirement: 7,
+    transfer_to: { snatch: 0.45 },
+  },
+  snatch_balance: {
+    variant: "classic", role: "technical", intent: "speed_under",
+    primary_phase: "receive", primary_position: "overhead", purpose: "receive",
+    fatigue_cost: 4, recovery_demand: 3, fatigue_type: "cns",
+    technical_complexity: 8, skill_stability_requirement: 9,
+    transfer_to: { snatch: 0.5 },
+  },
+  overhead_squat: {
+    variant: "classic", role: "technical", intent: "positional_control",
+    primary_phase: "receive", primary_position: "overhead", purpose: "stability",
+    why: "Builds overhead stability and bottom-position confidence.",
+    improves: ["overhead_stability", "mobility", "bottom_strength"],
+    use_when: ["unstable_receive", "weak_legs", "skill_day"],
+    avoid_when: ["shoulder_injury"],
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "mixed",
+    technical_complexity: 8, skill_stability_requirement: 8,
+    transfer_to: { snatch: 0.4 },
+  },
+
+  // ── Pulls ─────────────────────────────────────────────────────────────
+  snatch_pull: {
+    variant: "classic", role: "overload", intent: "max_force",
+    primary_phase: "extension", primary_position: "hip_contact", purpose: "extension",
+    why: "Overloads the second pull and trains full extension.",
+    improves: ["extension", "pull_strength", "bar_path"],
+    use_when: ["weak_pull", "no_extension", "bar_drift"],
+    avoid_when: ["high_cns_fatigue"],
+    fatigue_cost: 6, recovery_demand: 5, fatigue_type: "local",
+    technical_complexity: 4, skill_stability_requirement: 5,
+    transfer_to: { snatch: 0.85 },
+  },
+  clean_pull: {
+    variant: "classic", role: "overload", intent: "max_force",
+    primary_phase: "extension", primary_position: "hip_contact", purpose: "extension",
+    fatigue_cost: 7, recovery_demand: 6, fatigue_type: "local",
+    technical_complexity: 4, skill_stability_requirement: 5,
+    transfer_to: { clean: 0.85 },
+  },
+  snatch_high_pull: {
+    role: "overload", intent: "speed_strength",
+    primary_phase: "extension", purpose: "speed",
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "mixed",
+    technical_complexity: 5, skill_stability_requirement: 5,
+    transfer_to: { snatch: 0.65 },
+  },
+  snatch_deadlift: {
+    variant: "classic", role: "overload", intent: "max_force",
+    primary_phase: "first_pull", primary_position: "floor", purpose: "positioning",
+    fatigue_cost: 7, recovery_demand: 7, fatigue_type: "local",
+    technical_complexity: 3, skill_stability_requirement: 4,
+    transfer_to: { snatch: 0.7 },
+  },
+  clean_deadlift: {
+    variant: "classic", role: "overload", intent: "max_force",
+    primary_phase: "first_pull", primary_position: "floor", purpose: "positioning",
+    fatigue_cost: 8, recovery_demand: 8, fatigue_type: "local",
+    technical_complexity: 3, skill_stability_requirement: 4,
+    transfer_to: { clean: 0.7 },
+  },
+
+  // ── Pause variants ────────────────────────────────────────────────────
+  snatch_pause_knee: {
+    variant: "pause", role: "technical", intent: "positional_control",
+    primary_phase: "transition", primary_position: "above_knee", purpose: "positioning",
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "mixed",
+    technical_complexity: 7, skill_stability_requirement: 8,
+    transfer_to: { snatch: 0.75 },
+  },
+  clean_pause_knee: {
+    variant: "pause", role: "technical", intent: "positional_control",
+    primary_phase: "transition", primary_position: "above_knee", purpose: "positioning",
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "mixed",
+    technical_complexity: 7, skill_stability_requirement: 8,
+    transfer_to: { clean: 0.75 },
+  },
+
+  // ── Jerk family ───────────────────────────────────────────────────────
+  push_press: {
+    role: "overload", intent: "max_force",
+    primary_phase: "drive", primary_position: "overhead", purpose: "extension",
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "mixed",
+    technical_complexity: 4, skill_stability_requirement: 5,
+    transfer_to: { jerk: 0.6 },
+  },
+  push_jerk: {
+    role: "technical", intent: "speed_under",
+    primary_phase: "pull_under", primary_position: "overhead", purpose: "speed",
+    fatigue_cost: 5, recovery_demand: 4, fatigue_type: "cns",
+    technical_complexity: 6, skill_stability_requirement: 7,
+    transfer_to: { jerk: 0.7 },
+  },
+  split_jerk: {
+    variant: "classic", role: "main", intent: "competition_execution",
+    primary_phase: "split", primary_position: "overhead", purpose: "trajectory",
+    fatigue_cost: 6, recovery_demand: 5, fatigue_type: "cns",
+    technical_complexity: 8, skill_stability_requirement: 9,
+    transfer_to: { jerk: 1.0 },
+  },
+  jerk_dip: {
+    role: "technical", intent: "positional_control",
+    primary_phase: "dip", primary_position: "rack", purpose: "positioning",
+    fatigue_cost: 3, recovery_demand: 2, fatigue_type: "local",
+    technical_complexity: 4, skill_stability_requirement: 5,
+    transfer_to: { jerk: 0.4 },
+  },
+  jerk_drive: {
+    role: "technical", intent: "speed_strength",
+    primary_phase: "drive", primary_position: "rack", purpose: "extension",
+    fatigue_cost: 4, recovery_demand: 3, fatigue_type: "mixed",
+    technical_complexity: 4, skill_stability_requirement: 5,
+    transfer_to: { jerk: 0.5 },
+  },
+  jerk_balance: {
+    role: "technical", intent: "positional_control",
+    primary_phase: "split", primary_position: "overhead", purpose: "balance",
+    fatigue_cost: 3, recovery_demand: 2, fatigue_type: "cns",
+    technical_complexity: 6, skill_stability_requirement: 8,
+    transfer_to: { jerk: 0.5 },
+  },
+  jerk_support: {
+    role: "accessory", intent: "positional_control",
+    primary_phase: "lockout", primary_position: "overhead", purpose: "stability",
+    fatigue_cost: 2, recovery_demand: 1, fatigue_type: "local",
+    technical_complexity: 3, skill_stability_requirement: 4,
+    transfer_to: { jerk: 0.3 },
+  },
+
+  // ── Squats ────────────────────────────────────────────────────────────
+  front_squat: {
+    role: "overload", intent: "max_force",
+    primary_phase: "recovery", primary_position: "rack", purpose: "stability",
+    fatigue_cost: 7, recovery_demand: 6, fatigue_type: "local",
+    technical_complexity: 4, skill_stability_requirement: 5,
+    transfer_to: { clean: 0.8, jerk: 0.5 },
+  },
+  back_squat: {
+    role: "overload", intent: "max_force",
+    primary_phase: "recovery", purpose: "stability",
+    fatigue_cost: 8, recovery_demand: 7, fatigue_type: "local",
+    technical_complexity: 3, skill_stability_requirement: 4,
+    transfer_to: { clean: 0.5, snatch: 0.4 },
+  },
+  pause_front_squat: {
+    variant: "pause", role: "overload", intent: "positional_control",
+    primary_phase: "recovery", primary_position: "rack", purpose: "stability",
+    fatigue_cost: 7, recovery_demand: 7, fatigue_type: "local",
+    technical_complexity: 5, skill_stability_requirement: 6,
+    transfer_to: { clean: 0.75 },
+  },
+  pause_back_squat: {
+    variant: "pause", role: "overload", intent: "positional_control",
+    primary_phase: "recovery", purpose: "stability",
+    fatigue_cost: 7, recovery_demand: 7, fatigue_type: "local",
+    technical_complexity: 4, skill_stability_requirement: 5,
+    transfer_to: { clean: 0.45, snatch: 0.4 },
+  },
+};
+
+// Apply enrichment in-place once at module load. Preserves all existing
+// fields; only fills in new metadata where defined.
+for (const ex of EXERCISE_DB) {
+  const enrich = ENRICHMENT[ex.id];
+  if (enrich) Object.assign(ex, enrich);
+}
+
+// ─────────────────── Lookup helpers ───────────────────
+
 export function getExerciseById(id: string): ExerciseDef | undefined {
   return EXERCISE_DB.find((e) => e.id === id);
 }
@@ -268,3 +547,49 @@ export function getExerciseByName(name: string): ExerciseDef | undefined {
 export function getExercisesByFamily(family: ExerciseFamily): ExerciseDef[] {
   return EXERCISE_DB.filter((e) => e.family === family);
 }
+
+// ─────────────────── Movement-intelligence helpers ───────────────────
+
+export function getExercisesByRole(role: ExerciseRole): ExerciseDef[] {
+  return EXERCISE_DB.filter((e) => e.role === role);
+}
+
+export function getExercisesByIntent(intent: ExerciseIntent): ExerciseDef[] {
+  return EXERCISE_DB.filter((e) => e.intent === intent);
+}
+
+export function getExercisesByPhase(phase: MovementPhase): ExerciseDef[] {
+  return EXERCISE_DB.filter(
+    (e) => e.primary_phase === phase || e.secondary_phases?.includes(phase),
+  );
+}
+
+export interface SafetyCtx {
+  readiness: number; // 0..10
+  fatigue: number;   // 0..100
+}
+
+export function getSafeExercises(
+  pool: ExerciseDef[],
+  ctx: SafetyCtx,
+): ExerciseDef[] {
+  return pool.filter((ex) => {
+    const tc = ex.technical_complexity ?? ex.difficulty;
+    const fc = ex.fatigue_cost ?? ex.difficulty * 1.5;
+    if (tc > ctx.readiness + 2) return false;
+    if (ctx.readiness < 4 && tc >= 8) return false;
+    if (ctx.fatigue > 80 && ex.fatigue_type === "cns") return false;
+    if (ctx.fatigue > 90 && fc >= 7) return false;
+    return true;
+  });
+}
+
+export function getHighTransferExercises(
+  lift: keyof TransferProfile,
+  threshold = 0.6,
+): ExerciseDef[] {
+  return EXERCISE_DB
+    .filter((e) => (e.transfer_to?.[lift] ?? 0) >= threshold)
+    .sort((a, b) => (b.transfer_to![lift]! - a.transfer_to![lift]!));
+}
+
