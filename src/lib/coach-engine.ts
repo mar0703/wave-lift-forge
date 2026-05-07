@@ -8,13 +8,16 @@ import { buildBlock } from "./training-engine";
 import { getExerciseById } from "./exercise-db";
 import {
   detectProblems,
-  selectCorrectives,
-  getSafeCorrectives,
-  getPrimaryProblem,
   getProblemsFromExercise,
   PROBLEM_PHASE_MAP,
   type ExerciseResult,
 } from "./diagnostics";
+import {
+  decideCorrection,
+  type CorrectionContext,
+  type CorrectionDecision,
+  type TrainingPhase as CETrainingPhase,
+} from "./weightlifting/correction-engine";
 
 // ─────────────────── 1. Central state ───────────────────
 export interface AthleteState {
