@@ -37,11 +37,24 @@ export interface MicrocycleSession {
   exercise_families?: ExerciseFamily[];
 }
 
+export type AdaptationTarget =
+  | "speed"
+  | "max_strength"
+  | "competition"
+  | "technical_rebuild"
+  | "work_capacity";
+
 export interface MicrocycleContext {
-  recent_sessions: MicrocycleSession[]; // newest first OR oldest first; we treat as a window
+  recent_sessions: MicrocycleSession[]; // chronological (oldest → newest)
   readiness: number;                    // 0–100
   fatigue: number;                      // 0–100
   training_phase: TrainingPhase;
+
+  // V3 additions
+  adaptation_target?: AdaptationTarget;
+  competition_in_days?: number;
+  planned_sessions?: MicrocycleSession[];
+  days_until_target?: number;
 }
 
 export interface MicrocycleState {
@@ -60,6 +73,11 @@ export interface MicrocycleState {
   recovery_spacing_score: number; // higher = better spaced recovery
 
   fatigue_risk: number;           // 0–100 composite
+
+  // V3 additions
+  functional_overreach_score?: number; // 0–100 productive overload signal
+  maladaptation_risk?: number;         // 0–100 dangerous overload signal
+  adaptation_direction_score?: number; // 0–100 alignment with adaptation_target
 
   notes: string[];
 }
@@ -554,20 +572,277 @@ function computeBiasedPriorities(
 // 7. PUBLIC API
 // ────────────────────────────────────────────────────────────
 
+// ────────────────────────────────────────────────────────────
+// 7.5. V3 — FUNCTIONAL OVERREACH vs MALADAPTATION
+// ────────────────────────────────────────────────────────────
+
+function recoveryTrend(sessions: MicrocycleSession[]): number {
+  // Compares technical_load and intensity in the older vs newer half of the
+  // window. Positive = recovery improving (loads trending down or stable),
+  // negative = degrading (loads trending up while restoration scarce).
+  if (sessions.length < 4) return 0;
+  const mid = Math.floor(sessions.length / 2);
+  const older = sessions.slice(0, mid);
+  const newer = sessions.slice(mid);
+  const olderLoad = avg(older.map((s) => s.cns_load ?? 0));
+  const newerLoad = avg(newer.map((s) => s.cns_load ?? 0));
+  return olderLoad - newerLoad; // positive when newer < older
+}
+
+function technicalTrend(sessions: MicrocycleSession[]): number {
+  if (sessions.length < 4) return 0;
+  const mid = Math.floor(sessions.length / 2);
+  const older = sessions.slice(0, mid);
+  const newer = sessions.slice(mid);
+  const olderQ = avg(older.map((s) => s.specificity_score ?? 50));
+  const newerQ = avg(newer.map((s) => s.specificity_score ?? 50));
+  // positive = movement quality holding/improving; negative = degrading
+  return newerQ - olderQ;
+}
+
+export function calculateFunctionalOverreach(
+  ctx: MicrocycleContext,
+  state: MicrocycleState,
+): number {
+  const window = takeWindow(ctx.recent_sessions);
+  if (!window.length) return 0;
+
+  const techTrend = technicalTrend(window);
+  const recTrend = recoveryTrend(window);
+
+  // Productive overload: elevated load + readiness still reasonable +
+  // movement quality preserved + recovery not collapsing.
+  const elevatedLoad = state.fatigue_risk >= 55 || state.heavy_day_count >= 3;
+  const readinessOk = ctx.readiness >= 45;
+  const qualityHeld = techTrend >= -5;
+  const recoveryHeld = recTrend >= -10 && state.recovery_spacing_score >= 45;
+
+  let score = 0;
+  if (elevatedLoad) score += 35;
+  if (readinessOk) score += 20;
+  if (qualityHeld) score += 25;
+  if (recoveryHeld) score += 20;
+
+  // Planned accumulation context boosts tolerance.
+  if (
+    ctx.training_phase === "accumulation" ||
+    ctx.adaptation_target === "max_strength" ||
+    ctx.adaptation_target === "work_capacity"
+  ) {
+    score += 10;
+  }
+
+  return clamp(score);
+}
+
+export function calculateMaladaptationRisk(
+  ctx: MicrocycleContext,
+  state: MicrocycleState,
+): number {
+  const window = takeWindow(ctx.recent_sessions);
+  if (!window.length) return 0;
+
+  const techTrend = technicalTrend(window);
+  const recTrend = recoveryTrend(window);
+
+  let risk = 0;
+
+  // Chronic CNS accumulation
+  if (state.rolling_cns_load >= 70) risk += 25;
+  else if (state.rolling_cns_load >= 60) risk += 12;
+
+  // Chronic technical degradation
+  if (techTrend <= -10) risk += 25;
+  else if (techTrend <= -5) risk += 12;
+
+  // Chronic recovery suppression
+  if (recTrend <= -10) risk += 15;
+  if (state.recovery_spacing_score < 40) risk += 15;
+  if (state.restoration_count === 0 && state.heavy_day_count >= 4) risk += 15;
+
+  // Repeated heavy sequencing
+  const consecHeavy = consecutiveCount(window, isHeavySession);
+  if (consecHeavy >= 4) risk += 15;
+  else if (consecHeavy >= 3) risk += 8;
+
+  // Readiness floor
+  if (ctx.readiness < 35) risk += 10;
+
+  return clamp(risk);
+}
+
+// ────────────────────────────────────────────────────────────
+// 7.6. V3 — ADAPTATION DIRECTION
+// ────────────────────────────────────────────────────────────
+
+function adaptationDirectionScore(
+  ctx: MicrocycleContext,
+  state: MicrocycleState,
+): number {
+  const target = ctx.adaptation_target;
+  if (!target) return 50;
+
+  switch (target) {
+    case "speed":
+      // Want low overload density, presence of speed-style work
+      return clamp(
+        70 -
+          state.rolling_cns_load * 0.4 -
+          state.squat_density * 0.2 +
+          state.specificity_density * 0.3,
+      );
+    case "max_strength":
+      return clamp(
+        40 + state.squat_density * 0.4 + state.pull_density * 0.3,
+      );
+    case "competition":
+      return clamp(
+        30 + state.specificity_density * 0.6 - state.technical_density * 0.2,
+      );
+    case "technical_rebuild":
+      return clamp(
+        30 +
+          state.technical_density * 0.5 +
+          state.restoration_count * 8 -
+          state.rolling_cns_load * 0.3,
+      );
+    case "work_capacity":
+      return clamp(
+        40 + state.rolling_local_load * 0.4 + state.heavy_day_count * 5,
+      );
+  }
+}
+
+function applyDirectionalBiasing(
+  ctx: MicrocycleContext,
+  state: MicrocycleState,
+  blocked: DailyPriority[],
+  biased: DailyPriority[],
+  maladaptationRisk: number,
+): { blocked: DailyPriority[]; biased: DailyPriority[]; notes: string[] } {
+  const notes: string[] = [];
+  const blockedSet = new Set(blocked);
+  const biasedOut = [...biased];
+
+  const addBias = (p: DailyPriority) => {
+    if (blockedSet.has(p) || biasedOut.includes(p)) return;
+    biasedOut.unshift(p); // directional bias takes precedence
+  };
+  const block = (p: DailyPriority, reason: string) => {
+    if (!blockedSet.has(p)) {
+      blockedSet.add(p);
+      notes.push(reason);
+    }
+  };
+
+  switch (ctx.adaptation_target) {
+    case "speed":
+      addBias("snatch_speed");
+      addBias("speed_under");
+      if (state.rolling_cns_load >= 60)
+        block("squat_strength", "Speed phase: suppress overload density.");
+      break;
+    case "max_strength":
+      addBias("squat_strength");
+      addBias("pull_strength");
+      // tolerate higher local fatigue — do NOT auto-block strength priorities
+      break;
+    case "competition":
+      addBias("competition_specific");
+      addBias("snatch_technique");
+      addBias("clean_technique");
+      // suppress excessive corrective density in competition phase
+      if (state.technical_density >= 60)
+        block(
+          "technical_restoration",
+          "Competition phase: suppress excessive corrective density.",
+        );
+      break;
+    case "technical_rebuild":
+      addBias("technical_restoration");
+      addBias("snatch_technique");
+      addBias("clean_technique");
+      block("snatch_strength", "Technical rebuild: suppress maximal intensity.");
+      block("clean_strength", "Technical rebuild: suppress maximal intensity.");
+      break;
+    case "work_capacity":
+      addBias("squat_strength");
+      addBias("pull_strength");
+      break;
+  }
+
+  // Maladaptation overrides: hard guard regardless of direction
+  if (maladaptationRisk >= 65) {
+    addBias("recovery");
+    block("competition_specific", "Maladaptation risk high: suppress max specificity.");
+  }
+
+  // Cap biased list
+  return {
+    blocked: Array.from(blockedSet),
+    biased: biasedOut.slice(0, MAX_BIASED_PRIORITIES),
+    notes,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// 8. PUBLIC API
+// ────────────────────────────────────────────────────────────
+
 export function evaluateMicrocycle(
   ctx: MicrocycleContext,
 ): MicrocycleDecision {
   const microcycle_state = calculateMicrocycleState(ctx);
+
+  // V3 scores
+  const functional_overreach_score = calculateFunctionalOverreach(
+    ctx,
+    microcycle_state,
+  );
+  const maladaptation_risk = calculateMaladaptationRisk(ctx, microcycle_state);
+  const adaptation_direction_score = adaptationDirectionScore(
+    ctx,
+    microcycle_state,
+  );
+  microcycle_state.functional_overreach_score = functional_overreach_score;
+  microcycle_state.maladaptation_risk = maladaptation_risk;
+  microcycle_state.adaptation_direction_score = adaptation_direction_score;
+
   const rec = shouldInsertRecovery(microcycle_state, ctx);
   const training_debts = calculateTrainingDebt(ctx, microcycle_state);
 
-  const blocked_priorities = computeBlockedPriorities(microcycle_state);
-  const biased_priorities = computeBiasedPriorities(
+  // Suppress panic-deload when overload is functional and risk is low
+  let recovery = rec.recovery;
+  const recReasons = [...rec.reasons];
+  if (
+    recovery &&
+    functional_overreach_score >= 70 &&
+    maladaptation_risk < 45 &&
+    (ctx.training_phase === "accumulation" ||
+      ctx.adaptation_target === "max_strength" ||
+      ctx.adaptation_target === "work_capacity")
+  ) {
+    recovery = false;
+    recReasons.push(
+      "Recovery suppressed: functional overreach detected (planned accumulation).",
+    );
+  }
+
+  const initialBlocked = computeBlockedPriorities(microcycle_state);
+  const initialBiased = computeBiasedPriorities(
     microcycle_state,
-    rec.recovery,
+    recovery,
     rec.restoration,
     training_debts,
-    blocked_priorities,
+    initialBlocked,
+  );
+
+  const directional = applyDirectionalBiasing(
+    ctx,
+    microcycle_state,
+    initialBlocked,
+    initialBiased,
+    maladaptation_risk,
   );
 
   const debtNotes = training_debts
@@ -593,18 +868,36 @@ export function evaluateMicrocycle(
     );
   }
 
+  const v3Notes: string[] = [];
+  if (functional_overreach_score >= 60)
+    v3Notes.push(
+      `Functional overreach (${Math.round(functional_overreach_score)}): productive overload.`,
+    );
+  if (maladaptation_risk >= 50)
+    v3Notes.push(
+      `Maladaptation risk elevated (${Math.round(maladaptation_risk)}).`,
+    );
+  if (ctx.adaptation_target)
+    v3Notes.push(
+      `Adaptation direction "${ctx.adaptation_target}" alignment ${Math.round(
+        adaptation_direction_score,
+      )}.`,
+    );
+
   const notes = [
     ...microcycle_state.notes,
-    ...rec.reasons,
+    ...recReasons,
     ...debtNotes,
     ...imbalanceWarn,
+    ...directional.notes,
+    ...v3Notes,
   ];
 
   return {
     microcycle_state,
-    blocked_priorities,
-    biased_priorities,
-    recovery_recommended: rec.recovery,
+    blocked_priorities: directional.blocked,
+    biased_priorities: directional.biased,
+    recovery_recommended: recovery,
     restoration_recommended: rec.restoration,
     training_debts,
     notes,
