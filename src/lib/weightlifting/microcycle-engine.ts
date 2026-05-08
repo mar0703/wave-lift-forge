@@ -37,11 +37,24 @@ export interface MicrocycleSession {
   exercise_families?: ExerciseFamily[];
 }
 
+export type AdaptationTarget =
+  | "speed"
+  | "max_strength"
+  | "competition"
+  | "technical_rebuild"
+  | "work_capacity";
+
 export interface MicrocycleContext {
-  recent_sessions: MicrocycleSession[]; // newest first OR oldest first; we treat as a window
+  recent_sessions: MicrocycleSession[]; // chronological (oldest → newest)
   readiness: number;                    // 0–100
   fatigue: number;                      // 0–100
   training_phase: TrainingPhase;
+
+  // V3 additions
+  adaptation_target?: AdaptationTarget;
+  competition_in_days?: number;
+  planned_sessions?: MicrocycleSession[];
+  days_until_target?: number;
 }
 
 export interface MicrocycleState {
@@ -60,6 +73,11 @@ export interface MicrocycleState {
   recovery_spacing_score: number; // higher = better spaced recovery
 
   fatigue_risk: number;           // 0–100 composite
+
+  // V3 additions
+  functional_overreach_score?: number; // 0–100 productive overload signal
+  maladaptation_risk?: number;         // 0–100 dangerous overload signal
+  adaptation_direction_score?: number; // 0–100 alignment with adaptation_target
 
   notes: string[];
 }
