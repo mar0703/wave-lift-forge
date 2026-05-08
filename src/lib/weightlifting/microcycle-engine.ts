@@ -64,12 +64,20 @@ export interface MicrocycleState {
   notes: string[];
 }
 
+export interface TrainingDebt {
+  priority: DailyPriority;
+  debt_score: number;          // 0–100
+  days_since_exposure: number; // sessions since last exposure (window-bound)
+  notes: string[];
+}
+
 export interface MicrocycleDecision {
   microcycle_state: MicrocycleState;
   blocked_priorities: DailyPriority[];
   biased_priorities: DailyPriority[];
   recovery_recommended: boolean;
   restoration_recommended: boolean;
+  training_debts?: TrainingDebt[];
   notes: string[];
 }
 
