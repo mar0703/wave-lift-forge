@@ -307,24 +307,247 @@ function computeBlockedPriorities(state: MicrocycleState): DailyPriority[] {
   return Array.from(blocked);
 }
 
+// Soft caps to keep biasing as guidance, not hard control.
+const MAX_BIASED_PRIORITIES = 4;
+
+const JERK_PRIORITIES: DailyPriority[] = ["jerk_technique", "jerk_strength"];
+const SPEED_PRIORITIES: DailyPriority[] = ["snatch_speed", "speed_under"];
+const SPECIFICITY_PRIORITIES: DailyPriority[] = [
+  "competition_specific",
+  "snatch_technique",
+  "clean_technique",
+];
+const RESTORATION_PRIORITIES: DailyPriority[] = [
+  "recovery",
+  "technical_restoration",
+];
+const CLASSIC_LIFT_PRIORITIES: DailyPriority[] = [
+  "snatch_technique",
+  "snatch_speed",
+  "snatch_strength",
+  "clean_technique",
+  "clean_strength",
+  "jerk_technique",
+  "jerk_strength",
+  "competition_specific",
+];
+
+function daysSinceExposure(
+  sessions: MicrocycleSession[],
+  predicate: (s: MicrocycleSession) => boolean,
+): number {
+  // Treat array as chronological (oldest first). Walk newest → oldest.
+  for (let i = sessions.length - 1, d = 0; i >= 0; i--, d++) {
+    if (predicate(sessions[i])) return d;
+  }
+  return sessions.length;
+}
+
+function priorityIn(s: MicrocycleSession, set: DailyPriority[]): boolean {
+  return !!s.daily_priority && set.includes(s.daily_priority);
+}
+
+function debtFromGap(gap: number, windowSize: number, threshold: number): number {
+  if (gap < threshold) return 0;
+  const span = Math.max(1, windowSize);
+  return clamp(((gap - threshold) / span) * 100);
+}
+
+function computeCorrectiveDensity(sessions: MicrocycleSession[]): number {
+  const n = sessions.length || 1;
+  const correctiveLike = sessions.filter(
+    (s) =>
+      s.restoration_day ||
+      s.daily_priority === "technical_restoration" ||
+      (s.specificity_score ?? 100) < 20,
+  ).length;
+  return clamp((correctiveLike / n) * 100);
+}
+
+// ────────────────────────────────────────────────────────────
+// 6.5. TRAINING DEBT
+// ────────────────────────────────────────────────────────────
+
+export function calculateTrainingDebt(
+  ctx: MicrocycleContext,
+  state: MicrocycleState,
+): TrainingDebt[] {
+  const window = takeWindow(ctx.recent_sessions);
+  const n = window.length;
+  if (!n) return [];
+
+  const debts: TrainingDebt[] = [];
+  const correctiveDensity = computeCorrectiveDensity(window);
+
+  const jerkGap = daysSinceExposure(window, (s) => priorityIn(s, JERK_PRIORITIES));
+  const jerkScore = debtFromGap(jerkGap, n, 5);
+  if (jerkScore > 0) {
+    debts.push({
+      priority: "jerk_technique",
+      debt_score: jerkScore,
+      days_since_exposure: jerkGap,
+      notes: [`No jerk-focused session in last ${jerkGap} sessions.`],
+    });
+  }
+
+  const speedGap = daysSinceExposure(window, (s) => priorityIn(s, SPEED_PRIORITIES));
+  const speedScore = debtFromGap(speedGap, n, 5);
+  if (speedScore > 0) {
+    debts.push({
+      priority: "snatch_speed",
+      debt_score: speedScore,
+      days_since_exposure: speedGap,
+      notes: [`No speed work exposure in last ${speedGap} sessions.`],
+    });
+  }
+
+  const specGap = daysSinceExposure(window, (s) =>
+    priorityIn(s, SPECIFICITY_PRIORITIES),
+  );
+  const phaseBoost =
+    ctx.training_phase === "peak" || ctx.training_phase === "realization" ? 1.5 : 1;
+  const specScore = clamp(debtFromGap(specGap, n, 4) * phaseBoost);
+  if (specScore > 0) {
+    debts.push({
+      priority: "competition_specific",
+      debt_score: specScore,
+      days_since_exposure: specGap,
+      notes: [
+        `Competition specificity gap (${specGap} sessions, phase=${ctx.training_phase}).`,
+      ],
+    });
+  }
+
+  if (correctiveDensity >= 50) {
+    const classicGap = daysSinceExposure(window, (s) =>
+      priorityIn(s, CLASSIC_LIFT_PRIORITIES),
+    );
+    const classicScore = clamp((correctiveDensity - 40) * 1.2 + classicGap * 5);
+    if (classicScore > 0) {
+      debts.push({
+        priority: "snatch_technique",
+        debt_score: classicScore,
+        days_since_exposure: classicGap,
+        notes: [
+          `Excessive corrective/restoration density (${Math.round(
+            correctiveDensity,
+          )}%); classic lifts undertrained.`,
+        ],
+      });
+    }
+  }
+
+  const restorationGap = daysSinceExposure(
+    window,
+    (s) =>
+      priorityIn(s, RESTORATION_PRIORITIES) ||
+      !!s.restoration_day ||
+      !!s.recovery_day,
+  );
+  if (
+    state.heavy_day_count >= 3 &&
+    state.restoration_count === 0 &&
+    restorationGap >= 4
+  ) {
+    const restScore = clamp(
+      30 + state.heavy_day_count * 8 + (restorationGap - 4) * 6,
+    );
+    debts.push({
+      priority: "recovery",
+      debt_score: restScore,
+      days_since_exposure: restorationGap,
+      notes: [
+        `Sustained heavy loading without restoration (${state.heavy_day_count} heavy / 0 restoration).`,
+      ],
+    });
+  }
+
+  if (state.rolling_technical_load >= 60) {
+    const techRestGap = daysSinceExposure(
+      window,
+      (s) => s.daily_priority === "technical_restoration",
+    );
+    if (techRestGap >= 5) {
+      debts.push({
+        priority: "technical_restoration",
+        debt_score: clamp(
+          state.rolling_technical_load - 50 + (techRestGap - 4) * 8,
+        ),
+        days_since_exposure: techRestGap,
+        notes: [
+          `Sustained technical density (${Math.round(
+            state.rolling_technical_load,
+          )}) with no technical restoration.`,
+        ],
+      });
+    }
+  }
+
+  return debts.sort((a, b) => b.debt_score - a.debt_score);
+}
+
+// ────────────────────────────────────────────────────────────
+// 6. PRIORITY BIASING
+// ────────────────────────────────────────────────────────────
+
 function computeBiasedPriorities(
   state: MicrocycleState,
   recovery: boolean,
   restoration: boolean,
+  debts: TrainingDebt[],
+  blocked: DailyPriority[],
 ): DailyPriority[] {
   const biased: DailyPriority[] = [];
-  if (recovery) biased.push("recovery");
-  if (restoration) biased.push("technical_restoration");
+  const blockedSet = new Set(blocked);
+  const push = (p: DailyPriority) => {
+    if (blockedSet.has(p)) return;
+    if (biased.includes(p)) return;
+    biased.push(p);
+  };
+
+  if (recovery) push("recovery");
+  if (restoration) push("technical_restoration");
+
+  for (const d of debts) {
+    if (d.debt_score < 35) continue;
+    switch (d.priority) {
+      case "jerk_technique":
+        push("jerk_technique");
+        if (d.debt_score >= 60) push("jerk_strength");
+        break;
+      case "snatch_speed":
+        push("snatch_speed");
+        push("speed_under");
+        break;
+      case "competition_specific":
+        push("competition_specific");
+        break;
+      case "snatch_technique":
+        push("snatch_technique");
+        push("clean_technique");
+        break;
+      case "recovery":
+        push("recovery");
+        break;
+      case "technical_restoration":
+        push("technical_restoration");
+        break;
+      default:
+        push(d.priority);
+    }
+    if (biased.length >= MAX_BIASED_PRIORITIES) break;
+  }
+
   if (
-    !recovery &&
-    !restoration &&
+    !biased.length &&
     state.specificity_density < 30 &&
     state.fatigue_risk < 50
   ) {
-    // window has been very general — gently bias technique work
-    biased.push("snatch_technique", "clean_technique");
+    push("snatch_technique");
+    push("clean_technique");
   }
-  return biased;
+
+  return biased.slice(0, MAX_BIASED_PRIORITIES);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -336,15 +559,46 @@ export function evaluateMicrocycle(
 ): MicrocycleDecision {
   const microcycle_state = calculateMicrocycleState(ctx);
   const rec = shouldInsertRecovery(microcycle_state, ctx);
+  const training_debts = calculateTrainingDebt(ctx, microcycle_state);
 
   const blocked_priorities = computeBlockedPriorities(microcycle_state);
   const biased_priorities = computeBiasedPriorities(
     microcycle_state,
     rec.recovery,
     rec.restoration,
+    training_debts,
+    blocked_priorities,
   );
 
-  const notes = [...microcycle_state.notes, ...rec.reasons];
+  const debtNotes = training_debts
+    .filter((d) => d.debt_score >= 35)
+    .map(
+      (d) =>
+        `Debt: ${d.priority} (${Math.round(d.debt_score)}, gap ${d.days_since_exposure}).`,
+    );
+
+  const imbalanceWarn: string[] = [];
+  const heavyBias =
+    microcycle_state.squat_density >= 60 ||
+    microcycle_state.pull_density >= 60 ||
+    microcycle_state.rolling_cns_load >= 60;
+  const lacksFinishers =
+    microcycle_state.specificity_density < 25 &&
+    training_debts.some(
+      (d) => d.priority === "snatch_speed" && d.debt_score >= 40,
+    );
+  if (heavyBias && lacksFinishers) {
+    imbalanceWarn.push(
+      "Adaptation imbalance: heavy strength density without speed/specificity.",
+    );
+  }
+
+  const notes = [
+    ...microcycle_state.notes,
+    ...rec.reasons,
+    ...debtNotes,
+    ...imbalanceWarn,
+  ];
 
   return {
     microcycle_state,
@@ -352,6 +606,7 @@ export function evaluateMicrocycle(
     biased_priorities,
     recovery_recommended: rec.recovery,
     restoration_recommended: rec.restoration,
+    training_debts,
     notes,
   };
 }
