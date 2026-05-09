@@ -11,6 +11,8 @@ import {
 import { type AugmentedWorkout } from "./adaptive-workout";
 import { orchestrateAndPrepareWorkout } from "./orchestrator";
 import {
+  detectProblems,
+  getPrimaryProblem,
   getProblemsFromExercise,
   type ExerciseResult,
 } from "./diagnostics";
@@ -24,6 +26,13 @@ export interface FixPerformance {
   success_rate: number;
   avg_rpe: number;
 }
+
+const PROBLEM_FOCUS: Record<string, string> = {
+  weak_clean: "Clean strength",
+  weak_jerk: "Jerk drive",
+  weak_legs: "Leg strength",
+  weak_pull: "Pull strength",
+};
 
 const KEY = "iron-method-state-v1";
 
@@ -124,20 +133,29 @@ export const engineStore = {
     setState({ user_maxes: { ...state.user_maxes, [id]: kg } });
   },
   generate() {
+    const baseWorkout = generateWorkout(state.input);
+    const detectedProblems = detectProblems(state.user_maxes);
+    const primaryProblem = getPrimaryProblem(
+      detectedProblems,
+      state.correction_state,
+    );
     const orchestrated = orchestrateAndPrepareWorkout({
-      engine_input: {
-        ...state.input,
-        user_maxes: state.user_maxes,
-        correction_state: state.correction_state,
-      },
+      engine_input: state.input,
       user_maxes: state.user_maxes,
       correction_state: state.correction_state,
       recent_sessions: state.history,
     });
     const base: AugmentedWorkout = {
-      ...orchestrated.base_workout,
+      ...baseWorkout,
       exercises: orchestrated.constrained_exercises,
-      notes: [...orchestrated.base_workout.notes, ...orchestrated.priority_notes],
+      detected_problems: detectedProblems,
+      injected_exercises: [],
+      problem_focus: detectedProblems.map((p) => PROBLEM_FOCUS[p] || p),
+      primary_problem: primaryProblem,
+      primary_problem_sessions: primaryProblem
+        ? Math.round(state.correction_state[primaryProblem] || 0)
+        : undefined,
+      notes: [...baseWorkout.notes, ...orchestrated.priority_notes],
     };
     const athlete: AthleteState = {
       readiness: state.input.readiness,
