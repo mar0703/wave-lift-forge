@@ -8,10 +8,8 @@ import {
   type WorkoutOutput,
   type AdaptationResult,
 } from "./training-engine";
-import {
-  generateAdaptiveWorkout,
-  type AugmentedWorkout,
-} from "./adaptive-workout";
+import { type AugmentedWorkout } from "./adaptive-workout";
+import { orchestrateAndPrepareWorkout } from "./orchestrator";
 import {
   getProblemsFromExercise,
   type ExerciseResult,
