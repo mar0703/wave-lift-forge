@@ -17,13 +17,25 @@
 // transform exercises → emit context.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { generateAdaptiveWorkout, type AugmentInput, type AugmentedWorkout } from "./adaptive-workout";
+import {
+  generateAdaptiveWorkout,
+  type AugmentInput,
+  type AugmentedWorkout,
+} from "./adaptive-workout";
 import type { ExerciseBlock } from "./training-engine";
 import { getExerciseById } from "./exercise-db";
 import { detectProblems } from "./diagnostics";
 
-import { evaluateRecovery, type RecoveryDecision, type RecoveryDomains } from "./weightlifting/recovery-domain-engine";
-import { evaluateMicrocycle, type MicrocycleDecision, type MicrocycleSession } from "./weightlifting/microcycle-engine";
+import {
+  evaluateRecovery,
+  type RecoveryDecision,
+  type RecoveryDomains,
+} from "./weightlifting/recovery-domain-engine";
+import {
+  evaluateMicrocycle,
+  type MicrocycleDecision,
+  type MicrocycleSession,
+} from "./weightlifting/microcycle-engine";
 import {
   selectDailyPriority,
   getPriorityHints,
@@ -53,25 +65,17 @@ export interface OrchestratorInput {
   priority_override?: DailyPriorityContext["override"];
 }
 
-export interface OverloadSignals {
-  functional_overreach_active: boolean;
-  maladaptation_risk_level: "none" | "moderate" | "high" | "critical";
-  maladaptation_risk_score: number;
-  rolling_cns_load: number;
-  coach_note: string;
-}
-
 export interface RuntimeConstraints {
-  intensity_ceiling: number;
-  complexity_tolerance: number;
-  cns_load_ceiling: number;
-  restoration_bias: number;
-  specificity_pressure: number;
-  intervention_bias: Set<string>;
-  blocked_ids: Set<string>;
+  intensity_ceiling: number;        // 0–100 (% 1RM)
+  complexity_tolerance: number;     // 0–10
+  cns_load_ceiling: number;         // 0–100
+  restoration_bias: number;         // 0–1
+  specificity_pressure: number;     // 0–1
+  intervention_bias: Set<string>;   // exercise IDs to favor
+  blocked_ids: Set<string>;         // exercise IDs to drop
+  /** preferred families (from daily priority). */
   preferred_families: Set<string>;
-  /** Informational only — NEVER triggers auto-deload. */
-  overload_signals: OverloadSignals;
+  /** notes describing why the constraint was applied. */
   notes: string[];
 }
 
@@ -150,13 +154,17 @@ function problemsToSignals(problems: string[]): PriorityProblemSignal[] {
 // Constraint reducers — each engine contributes restrictive caps
 // ────────────────────────────────────────────────────────────
 
-function applyRecoveryConstraints(rec: RecoveryDecision, c: RuntimeConstraints): void {
+function applyRecoveryConstraints(
+  rec: RecoveryDecision,
+  c: RuntimeConstraints,
+): void {
   const d = rec.recovery_domains;
   const degraded = new Set(rec.degraded_domains);
   const protectedSet = new Set(rec.protected_domains);
 
   const isDegraded = (k: keyof RecoveryDomains) => degraded.has(k) || d[k] <= 45;
-  const isProtected = (k: keyof RecoveryDomains) => protectedSet.has(k) || d[k] <= 30;
+  const isProtected = (k: keyof RecoveryDomains) =>
+    protectedSet.has(k) || d[k] <= 30;
 
   // CNS
   if (isProtected("cns")) {
@@ -212,75 +220,93 @@ function applyRecoveryConstraints(rec: RecoveryDecision, c: RuntimeConstraints):
   }
 }
 
-function applyMicrocycleConstraints(m: MicrocycleDecision, c: RuntimeConstraints, competition_in_days?: number): void {
+function applyMicrocycleConstraints(
+  m: MicrocycleDecision,
+  c: RuntimeConstraints,
+  competition_in_days?: number,
+): void {
   const s = m.microcycle_state;
-  const rollingCNS = s.rolling_cns_load ?? 0;
+
+  if (s.rolling_cns_load > 300) {
+    c.intensity_ceiling = Math.min(c.intensity_ceiling, 80);
+    c.restoration_bias = Math.min(1, c.restoration_bias + 0.4);
+    c.notes.push("Rolling CNS very high → restoration bias +40%");
+  } else if (s.rolling_cns_load > 250) {
+    c.intensity_ceiling = Math.min(c.intensity_ceiling, 88);
+    c.restoration_bias = Math.min(1, c.restoration_bias + 0.15);
+    c.notes.push("Rolling CNS high → restoration bias up");
+  }
+
   const malad = s.maladaptation_risk ?? 0;
-  const fo = s.functional_overreach_score ?? 0;
+  if (malad > 85) {
+    c.intensity_ceiling = Math.min(c.intensity_ceiling, 80);
+    c.restoration_bias = Math.min(1, c.restoration_bias + 0.35);
+    c.notes.push("Critical maladaptation risk → strong restoration bias");
+  } else if (malad > 70) {
+    c.intensity_ceiling = Math.min(c.intensity_ceiling, 88);
+    c.restoration_bias = Math.min(1, c.restoration_bias + 0.2);
+    c.notes.push("High maladaptation risk → reduce overload");
+  }
 
-  // ── Planned overload signals — informational ONLY ─────────────────────
-  // High maladaptation risk or rolling CNS do NOT auto-trigger deload.
-  // Planned overreach is a normal phase of weightlifting preparation.
-  // The coach reads these signals and decides. The system does not panic.
-
-  const maladLevel: OverloadSignals["maladaptation_risk_level"] =
-    malad > 85 ? "critical" : malad > 70 ? "high" : malad > 50 ? "moderate" : "none";
-
-  const coachNote =
-    maladLevel === "critical"
-      ? `Maladaptation risk critical (${malad}). Monitor recovery response closely.`
-      : maladLevel === "high"
-        ? `Maladaptation risk elevated (${malad}). Planned overload in progress.`
-        : maladLevel === "moderate"
-          ? `Maladaptation risk moderate (${malad}). Accumulation phase normal.`
-          : rollingCNS > 300
-            ? `Rolling CNS load very high (${rollingCNS}). Planned stress accumulation.`
-            : "Adaptation trajectory nominal.";
-
-  c.overload_signals = {
-    functional_overreach_active: fo >= 40,
-    maladaptation_risk_level: maladLevel,
-    maladaptation_risk_score: malad,
-    rolling_cns_load: rollingCNS,
-    coach_note: coachNote,
-  };
-
-  // ── Technical density — this IS a real constraint (coordination safety) ─
-  // Technical fatigue degrades movement quality regardless of planned overload.
   if (s.technical_density > 200) {
     c.complexity_tolerance = Math.min(c.complexity_tolerance, 5);
     c.notes.push("Technical density high → reduce complexity");
   }
 
-  // ── Competition specificity pressure ─────────────────────────────────────
-  if (competition_in_days !== undefined && competition_in_days <= 28 && s.specificity_density < 60) {
+  // Competition specificity pressure
+  if (
+    competition_in_days !== undefined &&
+    competition_in_days <= 28 &&
+    s.specificity_density < 60
+  ) {
     c.specificity_pressure = Math.min(1, c.specificity_pressure + 0.8);
     c.notes.push("Competition near → specificity pressure +80%");
   }
 }
 
-function applyPriorityConstraints(p: DailyPriorityDecision, c: RuntimeConstraints): void {
+function applyPriorityConstraints(
+  p: DailyPriorityDecision,
+  c: RuntimeConstraints,
+): void {
   const hints = getPriorityHints(p.daily_priority);
   c.intensity_ceiling = Math.min(c.intensity_ceiling, hints.intensity_clamp.max);
-  c.complexity_tolerance = Math.min(c.complexity_tolerance, hints.complexity_clamp.max);
+  c.complexity_tolerance = Math.min(
+    c.complexity_tolerance,
+    hints.complexity_clamp.max,
+  );
   c.cns_load_ceiling = Math.min(c.cns_load_ceiling, hints.max_cns_load);
   for (const f of hints.preferred_families) c.preferred_families.add(f);
-  c.specificity_pressure = Math.min(1, c.specificity_pressure + hints.bias.specificity * 0.5);
-  c.notes.push(`Priority ${p.daily_priority} → intensity ≤${hints.intensity_clamp.max}%, CNS ≤${hints.max_cns_load}`);
+  c.specificity_pressure = Math.min(
+    1,
+    c.specificity_pressure + hints.bias.specificity * 0.5,
+  );
+  c.notes.push(
+    `Priority ${p.daily_priority} → intensity ≤${hints.intensity_clamp.max}%, CNS ≤${hints.max_cns_load}`,
+  );
 }
 
-function applyInterventionConstraints(iv: InterventionDecision, c: RuntimeConstraints): void {
+function applyInterventionConstraints(
+  iv: InterventionDecision,
+  c: RuntimeConstraints,
+): void {
   for (const sel of iv.selected_interventions) {
     c.intervention_bias.add(sel.exercise_id);
   }
   for (const r of iv.rejected_interventions) {
     // Only block when rejection is safety-driven (CNS/coordination).
-    if (/cns|coordination|fatigue|competition/i.test(r.reason) && r.intervention.cns_cost > 60) {
+    if (
+      /cns|coordination|fatigue|competition/i.test(r.reason) &&
+      r.intervention.cns_cost > 60
+    ) {
       c.blocked_ids.add(r.intervention.exercise_id);
     }
   }
   if (iv.selected_interventions.length) {
-    c.notes.push(`Interventions biased: ${iv.selected_interventions.map((s) => s.exercise_id).join(", ")}`);
+    c.notes.push(
+      `Interventions biased: ${iv.selected_interventions
+        .map((s) => s.exercise_id)
+        .join(", ")}`,
+    );
   }
 }
 
@@ -297,7 +323,10 @@ function isFamilyBlocked(c: RuntimeConstraints, family: string): boolean {
 // Exercise transformation — apply unified constraints
 // ────────────────────────────────────────────────────────────
 
-function applyOrchestratorConstraints(exercises: ExerciseBlock[], c: RuntimeConstraints): ExerciseBlock[] {
+function applyOrchestratorConstraints(
+  exercises: ExerciseBlock[],
+  c: RuntimeConstraints,
+): ExerciseBlock[] {
   const out: ExerciseBlock[] = [];
   for (const ex of exercises) {
     if (c.blocked_ids.has(ex.exercise_id)) continue;
@@ -327,7 +356,10 @@ function applyOrchestratorConstraints(exercises: ExerciseBlock[], c: RuntimeCons
   return out;
 }
 
-function prioritizeByDailyPriority(exercises: ExerciseBlock[], c: RuntimeConstraints): ExerciseBlock[] {
+function prioritizeByDailyPriority(
+  exercises: ExerciseBlock[],
+  c: RuntimeConstraints,
+): ExerciseBlock[] {
   if (c.preferred_families.size === 0) return exercises;
   const main = exercises.filter((e) => c.preferred_families.has(e.family));
   const rest = exercises.filter((e) => !c.preferred_families.has(e.family));
@@ -338,7 +370,9 @@ function prioritizeByDailyPriority(exercises: ExerciseBlock[], c: RuntimeConstra
 // Build runtime coaching context
 // ────────────────────────────────────────────────────────────
 
-export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCoachingContext {
+export function buildRuntimeCoachingContext(
+  input: OrchestratorInput,
+): RuntimeCoachingContext {
   const { engine_input, user_maxes, recent_sessions = [] } = input;
   const readiness100 = readinessTo100(engine_input.readiness);
   const fatigue100 = engine_input.fatigue_score;
@@ -359,7 +393,9 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     readiness: readiness100,
     fatigue: fatigue100,
     training_phase:
-      input.competition_in_days !== undefined && input.competition_in_days <= 14 ? "peak" : "accumulation",
+      input.competition_in_days !== undefined && input.competition_in_days <= 14
+        ? "peak"
+        : "accumulation",
     competition_in_days: input.competition_in_days,
   });
 
@@ -369,7 +405,9 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     readiness: readiness100,
     fatigue: fatigue100,
     training_phase:
-      input.competition_in_days !== undefined && input.competition_in_days <= 14 ? "peak" : "accumulation",
+      input.competition_in_days !== undefined && input.competition_in_days <= 14
+        ? "peak"
+        : "accumulation",
     competition_in_days: input.competition_in_days,
     problems: problemsToSignals(detected),
     previous_sessions: buildPreviousSessions(recent_sessions),
@@ -394,13 +432,6 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     intervention_bias: new Set(),
     blocked_ids: new Set(),
     preferred_families: new Set(),
-    overload_signals: {
-      functional_overreach_active: false,
-      maladaptation_risk_level: "none",
-      maladaptation_risk_score: 0,
-      rolling_cns_load: 0,
-      coach_note: "Adaptation trajectory nominal.",
-    },
     notes: [],
   };
 
@@ -422,7 +453,9 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
 // Public entrypoint
 // ────────────────────────────────────────────────────────────
 
-export function orchestrateAndPrepareWorkout(input: OrchestratorInput): OrchestratorResult {
+export function orchestrateAndPrepareWorkout(
+  input: OrchestratorInput,
+): OrchestratorResult {
   const final_context = buildRuntimeCoachingContext(input);
 
   const base = generateAdaptiveWorkout({
@@ -431,7 +464,10 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): Orchestr
     correction_state: input.correction_state,
   });
 
-  let constrained = applyOrchestratorConstraints(base.exercises, final_context.constraints);
+  let constrained = applyOrchestratorConstraints(
+    base.exercises,
+    final_context.constraints,
+  );
   constrained = prioritizeByDailyPriority(constrained, final_context.constraints);
 
   // Inject any biased intervention exercises that weren't already present.
@@ -442,9 +478,14 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): Orchestr
     const def = getExerciseById(ivId);
     if (!def) continue;
     const refMax =
-      def.family === "snatch" ? input.engine_input.daily_snatch_max : input.engine_input.daily_clean_jerk_max;
+      def.family === "snatch"
+        ? input.engine_input.daily_snatch_max
+        : input.engine_input.daily_clean_jerk_max;
     // Light injection — 3 sets at conservative %.
-    const pct = Math.min(final_context.constraints.intensity_ceiling, Math.round(70 * intensity * 100) / 100);
+    const pct = Math.min(
+      final_context.constraints.intensity_ceiling,
+      Math.round(70 * intensity * 100) / 100,
+    );
     const block: ExerciseBlock = {
       exercise_id: def.id,
       name_en: def.name_en,
@@ -458,16 +499,8 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): Orchestr
     constrained.push(block);
   }
 
-  const { overload_signals: os } = final_context.constraints;
-  const overloadNote = os.functional_overreach_active
-    ? `⚡ Overreach active — ${os.coach_note}`
-    : os.maladaptation_risk_level !== "none"
-      ? `⚠ ${os.coach_note}`
-      : os.coach_note;
-
   const priority_notes = [
     `Daily priority: ${final_context.priority.daily_priority} — ${final_context.priority.primary_focus}`,
-    overloadNote,
     ...final_context.constraints.notes,
     ...final_context.priority.priority_notes.slice(0, 3),
     ...final_context.recovery.recovery_notes.slice(0, 3),
