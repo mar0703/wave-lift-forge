@@ -8,10 +8,8 @@ import {
   type WorkoutOutput,
   type AdaptationResult,
 } from "./training-engine";
-import {
-  generateAdaptiveWorkout,
-  type AugmentedWorkout,
-} from "./adaptive-workout";
+import { type AugmentedWorkout } from "./adaptive-workout";
+import { orchestrateAndPrepareWorkout } from "./orchestrator";
 import {
   getProblemsFromExercise,
   type ExerciseResult,
@@ -126,11 +124,21 @@ export const engineStore = {
     setState({ user_maxes: { ...state.user_maxes, [id]: kg } });
   },
   generate() {
-    const base = generateAdaptiveWorkout({
-      ...state.input,
+    const orchestrated = orchestrateAndPrepareWorkout({
+      engine_input: {
+        ...state.input,
+        user_maxes: state.user_maxes,
+        correction_state: state.correction_state,
+      },
       user_maxes: state.user_maxes,
       correction_state: state.correction_state,
+      recent_sessions: state.history,
     });
+    const base: AugmentedWorkout = {
+      ...orchestrated.base_workout,
+      exercises: orchestrated.constrained_exercises,
+      notes: [...orchestrated.base_workout.notes, ...orchestrated.priority_notes],
+    };
     const athlete: AthleteState = {
       readiness: state.input.readiness,
       fatigue: state.input.fatigue_score,
@@ -146,7 +154,7 @@ export const engineStore = {
     const merged: AugmentedWorkout = {
       ...base,
       exercises: coach.workout.exercises,
-      notes: coach.notes,
+      notes: [...orchestrated.priority_notes, ...coach.notes],
       injected_exercises: coach.injected_exercises.length
         ? coach.injected_exercises
         : base.injected_exercises,
