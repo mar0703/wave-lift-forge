@@ -394,7 +394,7 @@ export function buildRuntimeCoachingContext(
     fatigue: fatigue100,
     training_phase:
       input.competition_in_days !== undefined && input.competition_in_days <= 14
-        ? "competition"
+        ? "peak"
         : "accumulation",
     competition_in_days: input.competition_in_days,
   });
@@ -406,7 +406,7 @@ export function buildRuntimeCoachingContext(
     fatigue: fatigue100,
     training_phase:
       input.competition_in_days !== undefined && input.competition_in_days <= 14
-        ? "competition"
+        ? "peak"
         : "accumulation",
     competition_in_days: input.competition_in_days,
     problems: problemsToSignals(detected),
