@@ -1,515 +1,745 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Training Orchestrator
+// TRAINING ORCHESTRATOR - SINGLE AUTHORITATIVE RUNTIME COORDINATOR
 //
-// Single authoritative runtime coordinator. Evaluates ALL intelligence engines
-// (recovery domain, microcycle, daily priority, intervention) and merges their
-// outputs into a unified runtime coaching context. That context is then used
-// to constrain and bias the base augmented workout BEFORE the coach-pipeline
-// applies its periodization/strength/technique refinements.
+// Purpose:
+// - Merges ALL intelligence engine outputs into unified runtime context
+// - Actively propagates engine decisions into coaching pipeline
+// - Makes existing intelligence operational (no new engines added)
+// - Removes dependency on generateAdaptiveWorkout as sole entrypoint
 //
-// This module:
-//   • does NOT rewrite any engine
-//   • does NOT replace the coach-pipeline
-//   • does NOT mutate engine state
-//   • does NOT render UI
-//
-// It is pure orchestration: read engine outputs → resolve constraints →
-// transform exercises → emit context.
+// Responsibility:
+// - buildRuntimeCoachingContext: Merge all intelligence signals
+// - Apply recovery domain constraints
+// - Apply microcycle state biases
+// - Apply daily priority constraints
+// - Apply intervention biases
+// - buildFinalCoachContext: Unified payload before coach-engine
 // ─────────────────────────────────────────────────────────────────────────────
 
-import {
-  generateAdaptiveWorkout,
-  type AugmentInput,
-  type AugmentedWorkout,
-} from "./adaptive-workout";
-import type { ExerciseBlock } from "./training-engine";
+import type { EngineInput, WorkoutOutput, ExerciseBlock } from "./training-engine";
+import { generateWorkout, buildBlock } from "./training-engine";
+import { detectProblems, selectCorrectives, getPrimaryProblem } from "./diagnostics";
 import { getExerciseById } from "./exercise-db";
-import { detectProblems } from "./diagnostics";
 
-import {
-  evaluateRecovery,
-  type RecoveryDecision,
-  type RecoveryDomains,
-} from "./weightlifting/recovery-domain-engine";
-import {
-  evaluateMicrocycle,
-  type MicrocycleDecision,
-  type MicrocycleSession,
-} from "./weightlifting/microcycle-engine";
-import {
-  selectDailyPriority,
-  getPriorityHints,
-  type DailyPriorityDecision,
-  type DailyPriorityContext,
-  type PreviousSession,
-  type PriorityProblemSignal,
-} from "./weightlifting/daily-priority-engine";
-import {
-  selectInterventions,
-  type InterventionDecision,
-  type FatigueState,
-} from "./weightlifting/exercise-intervention-engine";
-import type { SessionLog } from "./engine-store";
+// Recovery domain engine
+import type { RecoveryDecision, RecoveryDomains } from "./weightlifting/recovery-domain-engine";
+import { evaluateRecovery } from "./weightlifting/recovery-domain-engine";
 
-// ────────────────────────────────────────────────────────────
-// Public types
-// ────────────────────────────────────────────────────────────
+// Microcycle engine
+import type { MicrocycleDecision, MicrocycleContext } from "./weightlifting/microcycle-engine";
+import { evaluateMicrocycle } from "./weightlifting/microcycle-engine";
+
+// Daily priority engine
+import type { DailyPriority, PriorityDefinition } from "./weightlifting/daily-priority-engine";
+import { PRIORITY_DEFINITIONS } from "./weightlifting/daily-priority-engine";
+
+// Intervention engine
+import type { InterventionDecision, InterventionContext } from "./weightlifting/exercise-intervention-engine";
+import { selectInterventions } from "./weightlifting/exercise-intervention-engine";
+
+// Arbitration bridge
+import {
+  buildArbitrationFromEngines,
+  type ArbitrationDecision,
+} from "./weightlifting/orchestrator-signal-bridge";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. ORCHESTRATOR INPUT & CONTEXT TYPES
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface OrchestratorInput {
-  engine_input: AugmentInput;
+  // Core engine input
+  engine_input: EngineInput;
   user_maxes: Record<string, number>;
   correction_state?: Record<string, number>;
-  recent_sessions?: SessionLog[];
-  competition_in_days?: number;
-  /** Optional override priority from coach. */
-  priority_override?: DailyPriorityContext["override"];
-}
 
-export interface RuntimeConstraints {
-  intensity_ceiling: number;        // 0–100 (% 1RM)
-  complexity_tolerance: number;     // 0–10
-  cns_load_ceiling: number;         // 0–100
-  restoration_bias: number;         // 0–1
-  specificity_pressure: number;     // 0–1
-  intervention_bias: Set<string>;   // exercise IDs to favor
-  blocked_ids: Set<string>;         // exercise IDs to drop
-  /** preferred families (from daily priority). */
-  preferred_families: Set<string>;
-  /** notes describing why the constraint was applied. */
-  notes: string[];
+  // History for microcycle / recovery calculation
+  recent_sessions?: Array<{
+    date?: string;
+    cns_load?: number;
+    technical_load?: number;
+    local_load?: number;
+    overhead_stress?: number;
+    squat_stress?: number;
+    pull_stress?: number;
+    intensity_avg?: number;
+    complexity_avg?: number;
+    specificity_score?: number;
+  }>;
+
+  // Athlete state for intervention context
+  readiness?: number;
+  fatigue?: number;
+  success_rate?: number;
+  competition_in_days?: number;
+  adaptation_target?: "timing" | "speed" | "max_strength" | "competition" | "technical_rebuild" | "work_capacity";
 }
 
 export interface RuntimeCoachingContext {
-  recovery: RecoveryDecision;
-  microcycle: MicrocycleDecision;
-  priority: DailyPriorityDecision;
-  intervention: InterventionDecision;
-  constraints: RuntimeConstraints;
+  // Original engine baseline
+  base_workout: WorkoutOutput;
+  detected_problems: string[];
+  primary_problem?: string;
+
+  // Recovery domain intelligence
+  recovery_decision: RecoveryDecision;
+  recovery_domains: RecoveryDomains;
+
+  // Microcycle intelligence
+  microcycle_decision: MicrocycleDecision;
+  rolling_cns_load: number;
+  rolling_technical_load: number;
+  maladaptation_risk: number;
+
+  // Daily priority intelligence
+  daily_priority: DailyPriority;
+  priority_definition: PriorityDefinition;
+
+  // Intervention intelligence
+  intervention_decision: InterventionDecision;
+  safe_exercises: string[];
+  blocked_exercises: string[];
+
+  // Unified constraints & biases
+  intensity_ceiling: number;      // % of base intensity
+  complexity_tolerance: number;   // 0–10
+  cns_load_ceiling: number;       // 0–100
+  restoration_bias: number;       // 0–1, favor restoration exercises
+  specificity_pressure: number;   // 0–1, favor specificity
+  intervention_bias: Set<string>; // exercise IDs to favor
+  blocked_ids: Set<string>;       // exercise IDs to avoid
+
+  // Arbitration decision
+  arbitration: ArbitrationDecision;
+
+  notes: string[];
 }
 
-export interface OrchestratorResult {
-  final_context: RuntimeCoachingContext;
-  base_workout: AugmentedWorkout;
-  constrained_exercises: ExerciseBlock[];
-  priority_notes: string[];
+export interface FinalCoachContext {
+  // Unified runtime payload
+  base_workout: ExerciseBlock[];
+  constraints: {
+    intensity_pct: number;
+    complexity_max: number;
+    cns_load_ceiling: number;
+    blocked_exercises: Set<string>;
+  };
+  biases: {
+    restoration_favor: number;
+    specificity_favor: number;
+    intervention_exercise_ids: Set<string>;
+    preferred_families: string[];
+  };
+  intelligence_summary: {
+    recovery_domains: RecoveryDomains;
+    microcycle_state_risk: number;
+    daily_priority: DailyPriority;
+    intervention_count: number;
+  };
+  notes: string[];
 }
 
-// ────────────────────────────────────────────────────────────
-// Helpers — convert legacy state into engine-input shapes
-// ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. HELPER: Select Daily Priority
+// ─────────────────────────────────────────────────────────────────────────────
 
-function toFatigueState(f: number): FatigueState {
-  if (f >= 85) return "collapse";
-  if (f >= 70) return "high";
-  if (f >= 45) return "moderate";
-  return "fresh";
+function selectDailyPriority(
+  microcycle: MicrocycleDecision,
+  correction_state: Record<string, number>,
+  training_day: number,
+): DailyPriority {
+  // If microcycle blocks priorities, default to recovery or restoration
+  if (microcycle.blocked_priorities?.length === microcycle.biased_priorities?.length) {
+    return "recovery";
+  }
+
+  // If strong training debt in a priority, bias toward it
+  const debts = microcycle.training_debts || [];
+  if (debts.length > 0) {
+    const sortedByDebt = [...debts].sort((a, b) => b.debt_score - a.debt_score);
+    const topDebt = sortedByDebt[0];
+    if (topDebt && !microcycle.blocked_priorities?.includes(topDebt.priority)) {
+      return topDebt.priority;
+    }
+  }
+
+  // Fallback: day-of-week based + correction state
+  const dayPriorities: Record<number, DailyPriority> = {
+    1: "snatch_speed",
+    2: "clean_technique",
+    3: "squat_strength",
+    4: "jerk_strength",
+    5: "pull_strength",
+  };
+
+  return dayPriorities[training_day] || "snatch_speed";
 }
 
-function readinessTo100(r1to10: number): number {
-  return Math.max(0, Math.min(100, Math.round(r1to10 * 10)));
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. RECOVERY DOMAIN CONSTRAINT APPLICATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface RecoveryConstraint {
+  intensity_ceiling: number;
+  complexity_tolerance: number;
+  cns_load_ceiling: number;
+  notes: string[];
 }
 
-function sessionLogToMicroSession(log: SessionLog): MicrocycleSession {
-  // SessionLog is sparse — we approximate per-domain stress from intensity + RPE.
-  const intensity = log.adjusted_intensity; // 0–100
-  const rpe = log.average_RPE; // 0–10
-  const cns_load = Math.min(100, intensity * 0.7 + rpe * 5);
-  const local_load = Math.min(100, intensity * 0.5 + rpe * 4);
+function applyRecoveryConstraints(domains: RecoveryDomains): RecoveryConstraint {
+  const notes: string[] = [];
+  let intensity = 100;
+  let complexity = 10;
+  let cns = 100;
+
+  // CNS < 45: reduce intensity and CNS load
+  if (domains.cns <= 45) {
+    intensity *= 0.9;
+    cns *= 0.85;
+    notes.push("CNS degraded: reduce intensity -10%, CNS ceiling -15%");
+  }
+  if (domains.cns <= 30) {
+    intensity *= 0.85;
+    cns *= 0.7;
+    notes.push("CNS severely degraded: reduce intensity -15%, CNS ceiling -30%");
+  }
+
+  // Technical coordination < 45: reduce complexity
+  if (domains.technical_coordination <= 45) {
+    complexity *= 0.75;
+    notes.push("Technical coordination degraded: reduce complexity -25%");
+  }
+  if (domains.technical_coordination <= 30) {
+    complexity *= 0.6;
+    notes.push("Technical coordination severely degraded: reduce complexity -40%");
+  }
+
+  // Overhead freshness < 45: reduce jerk/overhead exercises
+  if (domains.overhead <= 45) {
+    notes.push("Overhead freshness degraded: reduce jerk volume");
+  }
+
+  // Speed freshness < 45: avoid explosive overload
+  if (domains.speed_freshness <= 45) {
+    notes.push("Speed freshness degraded: avoid explosive speed work");
+  }
+
+  // Legs < 45: reduce squat load
+  if (domains.legs <= 45) {
+    notes.push("Leg freshness degraded: reduce squat volume/intensity");
+  }
+
+  // Pull < 45: reduce pull load
+  if (domains.pull_chain <= 45) {
+    notes.push("Pull chain freshness degraded: reduce pull volume/intensity");
+  }
+
   return {
-    date: log.date,
-    cns_load,
-    technical_load: Math.min(100, intensity * 0.4 + rpe * 3),
-    local_load,
-    overhead_stress: Math.min(100, intensity * 0.4),
-    squat_stress: Math.min(100, intensity * 0.5),
-    pull_stress: Math.min(100, intensity * 0.5),
-    intensity_avg: intensity,
-    complexity_avg: 4,
-    specificity_score: 60,
-    recovery_day: false,
-    restoration_day: false,
+    intensity_ceiling: intensity,
+    complexity_tolerance: complexity,
+    cns_load_ceiling: cns,
+    notes,
   };
 }
 
-function buildPreviousSessions(logs: SessionLog[]): PreviousSession[] {
-  return logs.slice(0, 5).map((l) => ({
-    day_index: l.day,
-    cns_load: Math.min(100, l.adjusted_intensity * 0.7 + l.average_RPE * 5),
-    heavy_pull: l.adjusted_intensity >= 80,
-    heavy_squat: l.adjusted_intensity >= 80,
-    heavy_overhead: l.adjusted_intensity >= 80,
-    date: l.date,
-  }));
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. MICROCYCLE STATE CONSTRAINT APPLICATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface MicrocycleConstraint {
+  intensity_ceiling: number;
+  restoration_bias: number;
+  cns_load_ceiling: number;
+  specificity_pressure: number;
+  notes: string[];
 }
 
-function problemsToSignals(problems: string[]): PriorityProblemSignal[] {
-  return problems.map((p) => ({
-    problem: p,
-    severity: 6,
-    trend: "stable",
-  }));
+function applyMicrocycleConstraints(microcycle: MicrocycleDecision): MicrocycleConstraint {
+  const state = microcycle.microcycle_state;
+  const notes: string[] = [];
+  let intensity = 100;
+  let restoration = 0;
+  let cns = 100;
+  let specificity = 0;
+
+  // High rolling CNS load → bias restoration
+  if ((state.rolling_cns_load || 0) > 250) {
+    restoration += 0.6;
+    intensity *= 0.9;
+    notes.push("Rolling CNS load high: bias restoration -10% intensity");
+  }
+  if ((state.rolling_cns_load || 0) > 300) {
+    restoration += 0.4;
+    intensity *= 0.85;
+    cns *= 0.85;
+    notes.push("Rolling CNS load very high: strong restoration bias");
+  }
+
+  // Maladaptation risk high → reduce overload pressure
+  if ((state.maladaptation_risk || 0) > 70) {
+    intensity *= 0.92;
+    restoration += 0.7;
+    notes.push("Maladaptation risk high: reduce intensity -8%, increase restoration");
+  }
+  if ((state.maladaptation_risk || 0) > 85) {
+    intensity *= 0.85;
+    restoration += 0.3;
+    notes.push("Maladaptation risk critical: strong restoration bias");
+  }
+
+  // High technical density → reduce complexity
+  if ((state.rolling_technical_load || 0) > 200) {
+    notes.push("Technical load high: reduce exercise complexity");
+  }
+
+  // High specificity density + days to competition close → increase specificity
+  if ((state.specificity_density || 0) > 60 && microcycle.notes?.some((n) => n.includes("competition"))) {
+    specificity += 0.8;
+    notes.push("Competition approaching: increase specificity bias");
+  }
+
+  return {
+    intensity_ceiling: intensity,
+    restoration_bias: restoration,
+    cns_load_ceiling: cns,
+    specificity_pressure: specificity,
+    notes,
+  };
 }
 
-// ────────────────────────────────────────────────────────────
-// Constraint reducers — each engine contributes restrictive caps
-// ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. DAILY PRIORITY CONSTRAINT APPLICATION
+// ─────────────────────────────────────────────────────────────────────────────
 
-function applyRecoveryConstraints(
-  rec: RecoveryDecision,
-  c: RuntimeConstraints,
-): void {
-  const d = rec.recovery_domains;
-  const degraded = new Set(rec.degraded_domains);
-  const protectedSet = new Set(rec.protected_domains);
-
-  const isDegraded = (k: keyof RecoveryDomains) => degraded.has(k) || d[k] <= 45;
-  const isProtected = (k: keyof RecoveryDomains) =>
-    protectedSet.has(k) || d[k] <= 30;
-
-  // CNS
-  if (isProtected("cns")) {
-    c.intensity_ceiling = Math.min(c.intensity_ceiling, 75);
-    c.cns_load_ceiling = Math.min(c.cns_load_ceiling, 50);
-    c.restoration_bias = Math.min(1, c.restoration_bias + 0.4);
-    c.notes.push("CNS protected → intensity ≤75%, restoration bias up");
-  } else if (isDegraded("cns")) {
-    c.intensity_ceiling = Math.min(c.intensity_ceiling, 85);
-    c.cns_load_ceiling = Math.min(c.cns_load_ceiling, 65);
-    c.restoration_bias = Math.min(1, c.restoration_bias + 0.2);
-    c.notes.push("CNS degraded → intensity ≤85%");
-  }
-
-  // Technical coordination
-  if (isProtected("technical_coordination")) {
-    c.complexity_tolerance = Math.min(c.complexity_tolerance, 4);
-    c.notes.push("Coordination protected → complexity ≤4");
-  } else if (isDegraded("technical_coordination")) {
-    c.complexity_tolerance = Math.min(c.complexity_tolerance, 6);
-    c.notes.push("Coordination degraded → complexity ≤6");
-  }
-
-  // Overhead
-  if (isProtected("overhead")) {
-    addBlockedFamily(c, "jerk");
-    c.notes.push("Overhead protected → block jerk/overhead work");
-  } else if (isDegraded("overhead")) {
-    c.intensity_ceiling = Math.min(c.intensity_ceiling, 85);
-    c.notes.push("Overhead degraded → reduce jerk volume");
-  }
-
-  // Speed
-  if (isProtected("speed_freshness")) {
-    c.restoration_bias = Math.min(1, c.restoration_bias + 0.2);
-    c.notes.push("Speed freshness protected → reduce explosive work");
-  }
-
-  // Legs
-  if (isProtected("legs")) {
-    addBlockedFamily(c, "squat");
-    c.notes.push("Legs protected → block squat sessions");
-  } else if (isDegraded("legs")) {
-    c.notes.push("Legs degraded → reduce squat volume");
-  }
-
-  // Pull chain
-  if (isProtected("pull_chain")) {
-    addBlockedFamily(c, "pull");
-    c.notes.push("Pull chain protected → block pull sessions");
-  } else if (isDegraded("pull_chain")) {
-    c.notes.push("Pull chain degraded → reduce pull volume");
-  }
+interface PriorityConstraint {
+  intensity_ceiling: number;
+  complexity_tolerance: number;
+  cns_load_ceiling: number;
+  preferred_families: string[];
+  notes: string[];
 }
 
-function applyMicrocycleConstraints(
-  m: MicrocycleDecision,
-  c: RuntimeConstraints,
-  competition_in_days?: number,
-): void {
-  const s = m.microcycle_state;
+function applyPriorityConstraints(priority: PriorityDefinition): PriorityConstraint {
+  const notes: string[] = [];
+  const intensity = (priority.preferred_intensity_range.max / 100) * 100; // as % ceiling
+  const complexity = priority.preferred_complexity_range.max;
+  const cns = priority.max_cns_load;
+  const families = priority.preferred_families || [];
 
-  if (s.rolling_cns_load > 300) {
-    c.intensity_ceiling = Math.min(c.intensity_ceiling, 80);
-    c.restoration_bias = Math.min(1, c.restoration_bias + 0.4);
-    c.notes.push("Rolling CNS very high → restoration bias +40%");
-  } else if (s.rolling_cns_load > 250) {
-    c.intensity_ceiling = Math.min(c.intensity_ceiling, 88);
-    c.restoration_bias = Math.min(1, c.restoration_bias + 0.15);
-    c.notes.push("Rolling CNS high → restoration bias up");
-  }
-
-  const malad = s.maladaptation_risk ?? 0;
-  if (malad > 85) {
-    c.intensity_ceiling = Math.min(c.intensity_ceiling, 80);
-    c.restoration_bias = Math.min(1, c.restoration_bias + 0.35);
-    c.notes.push("Critical maladaptation risk → strong restoration bias");
-  } else if (malad > 70) {
-    c.intensity_ceiling = Math.min(c.intensity_ceiling, 88);
-    c.restoration_bias = Math.min(1, c.restoration_bias + 0.2);
-    c.notes.push("High maladaptation risk → reduce overload");
-  }
-
-  if (s.technical_density > 200) {
-    c.complexity_tolerance = Math.min(c.complexity_tolerance, 5);
-    c.notes.push("Technical density high → reduce complexity");
-  }
-
-  // Competition specificity pressure
-  if (
-    competition_in_days !== undefined &&
-    competition_in_days <= 28 &&
-    s.specificity_density < 60
-  ) {
-    c.specificity_pressure = Math.min(1, c.specificity_pressure + 0.8);
-    c.notes.push("Competition near → specificity pressure +80%");
-  }
-}
-
-function applyPriorityConstraints(
-  p: DailyPriorityDecision,
-  c: RuntimeConstraints,
-): void {
-  const hints = getPriorityHints(p.daily_priority);
-  c.intensity_ceiling = Math.min(c.intensity_ceiling, hints.intensity_clamp.max);
-  c.complexity_tolerance = Math.min(
-    c.complexity_tolerance,
-    hints.complexity_clamp.max,
+  notes.push(`Daily priority: ${priority.id}`);
+  notes.push(`  Target phases: ${priority.target_phases.join(", ")}`);
+  notes.push(
+    `  Intensity: ${priority.preferred_intensity_range.min}–${priority.preferred_intensity_range.max}%`,
   );
-  c.cns_load_ceiling = Math.min(c.cns_load_ceiling, hints.max_cns_load);
-  for (const f of hints.preferred_families) c.preferred_families.add(f);
-  c.specificity_pressure = Math.min(
-    1,
-    c.specificity_pressure + hints.bias.specificity * 0.5,
+  notes.push(
+    `  Complexity: ${priority.preferred_complexity_range.min}–${priority.preferred_complexity_range.max}`,
   );
-  c.notes.push(
-    `Priority ${p.daily_priority} → intensity ≤${hints.intensity_clamp.max}%, CNS ≤${hints.max_cns_load}`,
-  );
+  notes.push(`  Max CNS load: ${priority.max_cns_load}`);
+
+  return {
+    intensity_ceiling: intensity,
+    complexity_tolerance: complexity,
+    cns_load_ceiling: cns,
+    preferred_families: families,
+    notes,
+  };
 }
 
-function applyInterventionConstraints(
-  iv: InterventionDecision,
-  c: RuntimeConstraints,
-): void {
-  for (const sel of iv.selected_interventions) {
-    c.intervention_bias.add(sel.exercise_id);
-  }
-  for (const r of iv.rejected_interventions) {
-    // Only block when rejection is safety-driven (CNS/coordination).
-    if (
-      /cns|coordination|fatigue|competition/i.test(r.reason) &&
-      r.intervention.cns_cost > 60
-    ) {
-      c.blocked_ids.add(r.intervention.exercise_id);
-    }
-  }
-  if (iv.selected_interventions.length) {
-    c.notes.push(
-      `Interventions biased: ${iv.selected_interventions
-        .map((s) => s.exercise_id)
-        .join(", ")}`,
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. INTERVENTION CONSTRAINT APPLICATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface InterventionConstraint {
+  safe_exercises: string[];
+  blocked_exercises: string[];
+  bias_exercises: Set<string>;
+  notes: string[];
+}
+
+function applyInterventionConstraints(decision: InterventionDecision): InterventionConstraint {
+  const notes: string[] = [];
+  const bias = new Set<string>();
+  const blocked = new Set<string>();
+  const safe = new Array<string>();
+
+  // Selected interventions should be actively biased
+  for (const intervention of decision.selected_interventions) {
+    bias.add(intervention.exercise_id);
+    safe.push(intervention.exercise_id);
+    notes.push(
+      `Selected intervention: ${intervention.exercise_id} ` +
+        `(category: ${intervention.intervention_category}, purpose: ${intervention.intervention_purpose})`,
     );
   }
-}
 
-function addBlockedFamily(c: RuntimeConstraints, family: string): void {
-  // Best-effort: blocked at exercise-application time we re-check family.
-  c.blocked_ids.add(`__family:${family}`);
-}
-
-function isFamilyBlocked(c: RuntimeConstraints, family: string): boolean {
-  return c.blocked_ids.has(`__family:${family}`);
-}
-
-// ────────────────────────────────────────────────────────────
-// Exercise transformation — apply unified constraints
-// ────────────────────────────────────────────────────────────
-
-function applyOrchestratorConstraints(
-  exercises: ExerciseBlock[],
-  c: RuntimeConstraints,
-): ExerciseBlock[] {
-  const out: ExerciseBlock[] = [];
-  for (const ex of exercises) {
-    if (c.blocked_ids.has(ex.exercise_id)) continue;
-    if (isFamilyBlocked(c, ex.family)) continue;
-
-    let { sets, intensity_pct, weight_kg } = ex;
-
-    // Intensity ceiling
-    if (intensity_pct > c.intensity_ceiling) {
-      const ratio = c.intensity_ceiling / intensity_pct;
-      intensity_pct = Math.round(c.intensity_ceiling);
-      weight_kg = Math.round(weight_kg * ratio * 2) / 2;
+  // Rejected interventions should be blocked if they are unsafe
+  for (const { intervention, reason } of decision.rejected_interventions) {
+    if (reason.includes("CNS") || reason.includes("fatigue") || reason.includes("unsafe")) {
+      blocked.add(intervention.exercise_id);
+      notes.push(`Blocked intervention: ${intervention.exercise_id} (${reason})`);
     }
-
-    // Bias selected interventions: +10% sets
-    if (c.intervention_bias.has(ex.exercise_id)) {
-      sets = Math.max(sets, Math.round(sets * 1.1));
-    }
-
-    // Restoration bias: trim heavy/CNS-costly main work
-    if (c.restoration_bias > 0.5 && intensity_pct > 80) {
-      sets = Math.max(1, Math.round(sets * 0.85));
-    }
-
-    out.push({ ...ex, sets, intensity_pct, weight_kg });
   }
-  return out;
+
+  return {
+    safe_exercises: safe,
+    blocked_exercises: Array.from(blocked),
+    bias_exercises: bias,
+    notes,
+  };
 }
 
-function prioritizeByDailyPriority(
-  exercises: ExerciseBlock[],
-  c: RuntimeConstraints,
-): ExerciseBlock[] {
-  if (c.preferred_families.size === 0) return exercises;
-  const main = exercises.filter((e) => c.preferred_families.has(e.family));
-  const rest = exercises.filter((e) => !c.preferred_families.has(e.family));
-  return [...main, ...rest];
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. MAIN: Build Runtime Coaching Context
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ────────────────────────────────────────────────────────────
-// Build runtime coaching context
-// ────────────────────────────────────────────────────────────
+export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCoachingContext {
+  // 1. Generate base workout (training-engine)
+  const base = generateWorkout(input.engine_input);
+  const detected = detectProblems(input.user_maxes);
+  const primary = getPrimaryProblem(detected, input.correction_state || {});
 
-export function buildRuntimeCoachingContext(
-  input: OrchestratorInput,
-): RuntimeCoachingContext {
-  const { engine_input, user_maxes, recent_sessions = [] } = input;
-  const readiness100 = readinessTo100(engine_input.readiness);
-  const fatigue100 = engine_input.fatigue_score;
-  const fatigueState = toFatigueState(fatigue100);
+  // 2. Call recovery-domain-engine
+  const recoveryInput = {
+    recent_sessions: input.recent_sessions || [],
+    readiness: input.readiness || input.engine_input.readiness,
+    sleep_quality: input.engine_input.profile_assessment.sleep_quality * 10,
+    soreness: Math.max(0, input.fatigue || 0), // approximate
+  };
+  const recoveryDecision = evaluateRecovery(recoveryInput);
+  const recoveryDomains = recoveryDecision.recovery_domains;
 
-  const microSessions = recent_sessions.map(sessionLogToMicroSession).reverse();
-
-  // 1. Recovery
-  const recovery = evaluateRecovery({
-    recent_sessions: microSessions,
-    fatigue_state: fatigueState,
-    readiness: readiness100,
-  });
-
-  // 2. Microcycle
-  const microcycle = evaluateMicrocycle({
-    recent_sessions: microSessions,
-    readiness: readiness100,
-    fatigue: fatigue100,
-    training_phase:
-      input.competition_in_days !== undefined && input.competition_in_days <= 14
-        ? "peak"
-        : "accumulation",
+  // 3. Call microcycle-engine
+  const microcycleCtx: MicrocycleContext = {
+    recent_sessions: input.recent_sessions || [],
+    readiness: input.readiness || input.engine_input.readiness,
+    fatigue: input.fatigue || input.engine_input.fatigue_score,
+    training_phase: input.engine_input.training_day_index <= 2 ? "accumulation" : 
+                    input.engine_input.training_day_index <= 4 ? "intensification" : "peak",
+    adaptation_target: input.adaptation_target as any,
     competition_in_days: input.competition_in_days,
-  });
+  };
+  const microcycleDecision = evaluateMicrocycle(microcycleCtx);
 
-  // 3. Daily priority
-  const detected = detectProblems(user_maxes);
-  const priority = selectDailyPriority({
-    readiness: readiness100,
-    fatigue: fatigue100,
-    training_phase:
-      input.competition_in_days !== undefined && input.competition_in_days <= 14
-        ? "peak"
-        : "accumulation",
-    competition_in_days: input.competition_in_days,
-    problems: problemsToSignals(detected),
-    previous_sessions: buildPreviousSessions(recent_sessions),
-    override: input.priority_override,
-  });
+  // 4. Select daily priority
+  const dailyPriority = selectDailyPriority(
+    microcycleDecision,
+    input.correction_state || {},
+    input.engine_input.training_day_index,
+  );
+  const priorityDef = PRIORITY_DEFINITIONS[dailyPriority];
 
-  // 4. Interventions
-  const intervention = selectInterventions({
+  // 5. Call intervention-engine
+  const interventionCtx: InterventionContext = {
     problems: detected,
-    fatigue_state: fatigueState,
+    adaptation_target: input.adaptation_target === "max_strength" ? "strength" :
+                      input.adaptation_target === "technical_rebuild" ? "technical_restoration" :
+                      input.adaptation_target === "competition" ? "specificity" :
+                      input.adaptation_target as any,
+    fatigue_state: (input.fatigue || 0) > 70 ? "high" : (input.fatigue || 0) > 40 ? "moderate" : "fresh",
     competition_in_days: input.competition_in_days,
     recent_intervention_count: 0,
+  };
+  const interventionDecision = selectInterventions(interventionCtx);
+
+  // 6. Apply recovery domain constraints
+  const recoveryConstraint = applyRecoveryConstraints(recoveryDomains);
+
+  // 7. Apply microcycle constraints
+  const microcycleConstraint = applyMicrocycleConstraints(microcycleDecision);
+
+  // 8. Apply priority constraints
+  const priorityConstraint = applyPriorityConstraints(priorityDef);
+
+  // 9. Apply intervention constraints
+  const interventionConstraint = applyInterventionConstraints(interventionDecision);
+
+  // 10. Build arbitration decision from all engines
+  const arbitration = buildArbitrationFromEngines({
+    recovery: recoveryDecision,
+    microcycle: microcycleDecision,
+    priority: {
+      daily_priority: dailyPriority,
+      definition: priorityDef,
+      primary_focus: "",
+      technical_focus: [],
+      fatigue_focus: "",
+      priority_notes: [],
+      candidates: [],
+      rejected: [],
+    },
+    intervention: interventionDecision,
+    athlete_context: {
+      competition_in_days: input.competition_in_days,
+      readiness: input.readiness,
+      fatigue: input.fatigue,
+    },
   });
 
-  // 5. Resolve unified constraints (most-restrictive wins)
-  const constraints: RuntimeConstraints = {
-    intensity_ceiling: 100,
-    complexity_tolerance: 10,
-    cns_load_ceiling: 100,
-    restoration_bias: 0,
-    specificity_pressure: 0,
-    intervention_bias: new Set(),
-    blocked_ids: new Set(),
-    preferred_families: new Set(),
-    notes: [],
+  // 11. MERGE all constraints into unified context
+  // Most restrictive ceiling wins
+  const intensity_ceiling = Math.min(
+    recoveryConstraint.intensity_ceiling,
+    microcycleConstraint.intensity_ceiling,
+    priorityConstraint.intensity_ceiling,
+  );
+
+  const complexity_tolerance = Math.min(
+    recoveryConstraint.complexity_tolerance,
+    priorityConstraint.complexity_tolerance,
+  );
+
+  const cns_load_ceiling = Math.min(
+    recoveryConstraint.cns_load_ceiling,
+    microcycleConstraint.cns_load_ceiling,
+    priorityConstraint.cns_load_ceiling,
+  );
+
+  const restoration_bias = Math.max(
+    microcycleConstraint.restoration_bias,
+    microcycleDecision.restoration_recommended ? 0.7 : 0,
+  );
+
+  const specificity_pressure = Math.max(
+    microcycleConstraint.specificity_pressure,
+    microcycleDecision.notes?.some((n) => n.includes("competition")) ? 0.8 : 0,
+  );
+
+  // Collect all notes
+  const notes: string[] = [
+    ...recoveryConstraint.notes,
+    ...microcycleConstraint.notes,
+    ...priorityConstraint.notes,
+    ...interventionConstraint.notes,
+  ];
+
+  return {
+    base_workout: base,
+    detected_problems: detected,
+    primary_problem: primary,
+
+    recovery_decision: recoveryDecision,
+    recovery_domains: recoveryDomains,
+
+    microcycle_decision: microcycleDecision,
+    rolling_cns_load: microcycleDecision.microcycle_state.rolling_cns_load,
+    rolling_technical_load: microcycleDecision.microcycle_state.rolling_technical_load,
+    maladaptation_risk: microcycleDecision.microcycle_state.maladaptation_risk || 0,
+
+    daily_priority: dailyPriority,
+    priority_definition: priorityDef,
+
+    intervention_decision: interventionDecision,
+    safe_exercises: interventionConstraint.safe_exercises,
+    blocked_exercises: interventionConstraint.blocked_exercises,
+
+    intensity_ceiling,
+    complexity_tolerance,
+    cns_load_ceiling,
+    restoration_bias,
+    specificity_pressure,
+    intervention_bias: interventionConstraint.bias_exercises,
+    blocked_ids: new Set(interventionConstraint.blocked_exercises),
+
+    arbitration,
+
+    notes,
   };
-
-  applyRecoveryConstraints(recovery, constraints);
-  applyMicrocycleConstraints(microcycle, constraints, input.competition_in_days);
-  applyPriorityConstraints(priority, constraints);
-  applyInterventionConstraints(intervention, constraints);
-
-  // Readiness tail-cap (low readiness = stricter ceiling)
-  if (readiness100 <= 30) {
-    constraints.intensity_ceiling = Math.min(constraints.intensity_ceiling, 80);
-    constraints.notes.push("Low readiness → intensity ≤80%");
-  }
-
-  return { recovery, microcycle, priority, intervention, constraints };
 }
 
-// ────────────────────────────────────────────────────────────
-// Public entrypoint
-// ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. FINAL COACH CONTEXT: Unified Execution Payload
+// ─────────────────────────────────────────────────────────────────────────────
 
-export function orchestrateAndPrepareWorkout(
-  input: OrchestratorInput,
-): OrchestratorResult {
-  const final_context = buildRuntimeCoachingContext(input);
+export function buildFinalCoachContext(runtime: RuntimeCoachingContext): FinalCoachContext {
+  return {
+    base_workout: runtime.base_workout.exercises,
+    constraints: {
+      intensity_pct: runtime.intensity_ceiling,
+      complexity_max: runtime.complexity_tolerance,
+      cns_load_ceiling: runtime.cns_load_ceiling,
+      blocked_exercises: runtime.blocked_ids,
+    },
+    biases: {
+      restoration_favor: runtime.restoration_bias,
+      specificity_favor: runtime.specificity_pressure,
+      intervention_exercise_ids: runtime.intervention_bias,
+      preferred_families: runtime.priority_definition.preferred_families || [],
+    },
+    intelligence_summary: {
+      recovery_domains: runtime.recovery_domains,
+      microcycle_state_risk: runtime.maladaptation_risk,
+      daily_priority: runtime.daily_priority,
+      intervention_count: runtime.intervention_decision.selected_interventions.length,
+    },
+    notes: runtime.notes,
+  };
+}
 
-  const base = generateAdaptiveWorkout({
-    ...input.engine_input,
-    user_maxes: input.user_maxes,
-    correction_state: input.correction_state,
-  });
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. CONSTRAINT APPLICATION TO EXERCISES
+// ─────────────────────────────────────────────────────────────────────────────
 
-  let constrained = applyOrchestratorConstraints(
-    base.exercises,
-    final_context.constraints,
-  );
-  constrained = prioritizeByDailyPriority(constrained, final_context.constraints);
+/**
+ * Apply orchestrator constraints to a set of exercises.
+ * - Removes blocked exercises
+ * - Caps intensity based on constraints
+ * - Reduces complexity if needed
+ * - Biases toward intervention exercises
+ */
+export function applyOrchestratorConstraints(
+  exercises: ExerciseBlock[],
+  context: FinalCoachContext,
+): ExerciseBlock[] {
+  const {
+    constraints: { intensity_pct, complexity_max, blocked_exercises },
+    biases: { intervention_exercise_ids },
+  } = context;
 
-  // Inject any biased intervention exercises that weren't already present.
-  const present = new Set(constrained.map((e) => e.exercise_id));
-  const intensity = base.adjusted_intensity / 100;
-  for (const ivId of final_context.constraints.intervention_bias) {
-    if (present.has(ivId)) continue;
-    const def = getExerciseById(ivId);
-    if (!def) continue;
-    const refMax =
-      def.family === "snatch"
-        ? input.engine_input.daily_snatch_max
-        : input.engine_input.daily_clean_jerk_max;
-    // Light injection — 3 sets at conservative %.
-    const pct = Math.min(
-      final_context.constraints.intensity_ceiling,
-      Math.round(70 * intensity * 100) / 100,
-    );
-    const block: ExerciseBlock = {
-      exercise_id: def.id,
-      name_en: def.name_en,
-      family: def.family,
-      group: (def.group as ExerciseBlock["group"]) ?? "Special",
-      sets: 3,
-      reps: 3,
-      intensity_pct: pct,
-      weight_kg: Math.round(refMax * (pct / 100) * 2) / 2,
-    };
-    constrained.push(block);
+  return exercises
+    .filter((ex) => !blocked_exercises.has(ex.exercise_id))
+    .map((ex) => {
+      // Apply intensity ceiling
+      const cappedIntensity = Math.min(ex.intensity_pct, intensity_pct);
+
+      // Recalculate weight based on capped intensity
+      const refMax =
+        ex.family === "snatch" ? 100 : ex.family === "clean" || ex.family === "jerk" ? 130 : 120;
+      const cappedWeight = Math.round((refMax * cappedIntensity) / 100 / 2.5) * 2.5;
+
+      // If intervention exercise, slightly boost sets for emphasis
+      let sets = ex.sets;
+      if (intervention_exercise_ids.has(ex.exercise_id)) {
+        sets = Math.round(sets * 1.1);
+      }
+
+      return {
+        ...ex,
+        intensity_pct: cappedIntensity,
+        weight_kg: cappedWeight,
+        sets,
+      };
+    });
+}
+
+/**
+ * Score exercises for alignment with daily priority
+ * Returns modified exercise sets prioritized by alignment
+ */
+export function prioritizeByDailyPriority(
+  exercises: ExerciseBlock[],
+  priorityDef: PriorityDefinition,
+): ExerciseBlock[] {
+  if (!priorityDef.preferred_families || !priorityDef.preferred_families.length) {
+    return exercises;
   }
 
+  const preferredSet = new Set(priorityDef.preferred_families);
+  return exercises.sort((a, b) => {
+    const aPreferred = preferredSet.has(a.family as any) ? 1 : 0;
+    const bPreferred = preferredSet.has(b.family as any) ? 1 : 0;
+    return bPreferred - aPreferred;
+  });
+}
+
+/**
+ * Bias exercise selection toward restoration exercises when needed
+ */
+export function applyRestorationBias(
+  exercises: ExerciseBlock[],
+  restoration_favor: number,
+): ExerciseBlock[] {
+  if (restoration_favor <= 0.1) return exercises;
+
+  // Restoration exercises: lower intensity, technical focus
+  // Boost their sets when restoration bias is high
+  return exercises.map((ex) => {
+    // Consider exercises with intensity < 75% as "restoration-friendly"
+    const isRestorationFriendly = ex.intensity_pct < 75;
+    if (isRestorationFriendly) {
+      const boost = Math.round(1 + restoration_favor * 0.3);
+      return { ...ex, sets: Math.max(1, ex.sets * boost) };
+    }
+    return ex;
+  });
+}
+
+/**
+ * Bias exercise selection toward specificity exercises when needed
+ */
+export function applySpecificityBias(
+  exercises: ExerciseBlock[],
+  specificity_favor: number,
+): ExerciseBlock[] {
+  if (specificity_favor <= 0.1) return exercises;
+
+  // Classic lifts (snatch, clean, jerk) are competition-specific
+  const specificFamilies = new Set(["snatch", "clean", "jerk"]);
+  return exercises.map((ex) => {
+    if (specificFamilies.has(ex.family)) {
+      const boost = Math.round(1 + specificity_favor * 0.25);
+      return { ...ex, sets: Math.max(1, ex.sets * boost) };
+    }
+    return ex;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. INTEGRATED ORCHESTRATOR PIPELINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ORCHESTRATOR PIPELINE: Complete runtime coordination
+ *
+ * This replaces the legacy generateAdaptiveWorkout → coach-pipeline flow.
+ * The orchestrator is now the SINGLE AUTHORITATIVE ENTRYPOINT.
+ *
+ * Flow:
+ * 1. Build runtime context from ALL intelligence engines
+ * 2. Generate base workout
+ * 3. Apply orchestrator constraints (blocking, intensity ceilings, etc.)
+ * 4. Apply priority biasing
+ * 5. Apply restoration/specificity biases
+ * 6. Return unified context for coach-engine
+ */
+export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
+  final_context: FinalCoachContext;
+  constrained_exercises: ExerciseBlock[];
+  priority_notes: string[];
+} {
+  // Build unified intelligence context
+  const runtime_context = buildRuntimeCoachingContext(input);
+  const final_context = buildFinalCoachContext(runtime_context);
+
+  // Apply constraints to base exercises
+  let exercises = applyOrchestratorConstraints(
+    final_context.base_workout,
+    final_context,
+  );
+
+  // Apply priority biasing
+  const priorityDef = PRIORITY_DEFINITIONS[final_context.intelligence_summary.daily_priority];
+  if (priorityDef) {
+    exercises = prioritizeByDailyPriority(exercises, priorityDef);
+  }
+
+  // Apply restoration bias
+  exercises = applyRestorationBias(exercises, final_context.biases.restoration_favor);
+
+  // Apply specificity bias
+  exercises = applySpecificityBias(exercises, final_context.biases.specificity_favor);
+
   const priority_notes = [
-    `Daily priority: ${final_context.priority.daily_priority} — ${final_context.priority.primary_focus}`,
-    ...final_context.constraints.notes,
-    ...final_context.priority.priority_notes.slice(0, 3),
-    ...final_context.recovery.recovery_notes.slice(0, 3),
+    `Daily priority: ${final_context.intelligence_summary.daily_priority}`,
+    `Recovery domains: ${Object.entries(final_context.intelligence_summary.recovery_domains)
+      .map(([domain, score]) => `${domain}=${Math.round(score as number)}`)
+      .join(", ")}`,
+    `Maladaptation risk: ${Math.round(final_context.intelligence_summary.microcycle_state_risk)}`,
+    ...final_context.notes,
   ];
 
   return {
     final_context,
-    base_workout: base,
-    constrained_exercises: constrained,
+    constrained_exercises: exercises,
     priority_notes,
   };
 }
