@@ -51,6 +51,8 @@ import {
   buildArbitrationFromEngines,
   type ArbitrationDecision,
 } from "./weightlifting/orchestrator-signal-bridge";
+import { validateArbitrationDecision } from "./weightlifting/constraint-arbitration";
+import { getExerciseStressProfile } from "./weightlifting/exercise-stress-taxonomy";
 
 // Mesocycle execution integration
 import type { MacrocyclePlan } from "./weightlifting/macrocycle-engine";
@@ -528,7 +530,20 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
       readiness: input.readiness,
       fatigue: input.fatigue,
     },
+    mesocycle: {
+      specificity_pressure: mesocycleExecution.specificity_pressure,
+    },
   });
+
+  // Validate arbitration output. Non-fatal: log warnings only so callers
+  // observe drift without breaking the pipeline.
+  const arbitrationValidation = validateArbitrationDecision(arbitration);
+  if (!arbitrationValidation.valid) {
+    console.warn(
+      "[orchestrator] arbitration decision failed validation:",
+      arbitrationValidation.issues,
+    );
+  }
 
   // 11. Legacy helper merge retained for compatibility during migration.
   // The active runtime authority is the arbitration decision below.
@@ -674,6 +689,14 @@ export function applyOrchestratorConstraints(
 
   return exercises
     .filter((ex) => !blocked_exercises.has(ex.exercise_id))
+    .filter((ex) => {
+      // Drop exercises whose stress-taxonomy complexity exceeds the
+      // arbitrated ceiling. Unknown exercises (no profile) pass through —
+      // we never block what the taxonomy hasn't classified.
+      const profile = getExerciseStressProfile(ex.exercise_id);
+      if (!profile) return true;
+      return profile.complexity <= complexity_max;
+    })
     .map((ex) => {
       // Apply intensity ceiling
       const cappedIntensity = Math.min(ex.intensity_pct, intensity_pct);
@@ -793,6 +816,22 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     final_context.base_workout,
     final_context,
   );
+
+  // Enforce arbitrated stress-class blocks. protected_stress_classes is
+  // the recovery-flagged subset of blocked_stress_classes (recovery signals
+  // ≥70 emit into both sets), so filtering on the union covers both.
+  // Unknown exercises (no taxonomy profile) pass through unchanged.
+  const blockedStressClasses = new Set([
+    ...runtime_context.arbitration.blocked_stress_classes,
+    ...runtime_context.arbitration.protected_stress_classes,
+  ]);
+  if (blockedStressClasses.size > 0) {
+    exercises = exercises.filter((ex) => {
+      const profile = getExerciseStressProfile(ex.exercise_id);
+      if (!profile) return true;
+      return !blockedStressClasses.has(profile.stress_class);
+    });
+  }
 
   // Apply priority biasing
   const priorityDef = PRIORITY_DEFINITIONS[final_context.intelligence_summary.daily_priority];

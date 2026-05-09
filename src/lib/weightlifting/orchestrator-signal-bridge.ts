@@ -38,6 +38,13 @@ export interface BridgeInput {
     readiness?: number;
     fatigue?: number;
   };
+  // Optional strategic specificity pressure derived from the mesocycle
+  // execution layer (taper state, adaptation target, weekly bias,
+  // competition proximity — already aggregated via Math.max upstream).
+  // Routed through arbitration so runtime biases reflect strategic plan.
+  mesocycle?: {
+    specificity_pressure: number; // 0..1
+  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -178,6 +185,30 @@ function priorityToSignals(priority: DailyPriorityDecision): ConstraintSignal[] 
   return signals;
 }
 
+function mesocycleToSignals(
+  mesocycle: { specificity_pressure: number } | undefined,
+): ConstraintSignal[] {
+  if (!mesocycle) return [];
+  const pressure = mesocycle.specificity_pressure;
+  if (!Number.isFinite(pressure) || pressure <= 0) return [];
+
+  // Emit under source="competition" so it lands in the high-severity
+  // Math.max branch of arbitrateSpecificityPressure alongside the
+  // microcycle competition-proximity signal — preventing additive
+  // double-counting in the sum branch. mesocycleExecution.specificity_pressure
+  // already aggregates competition proximity via Math.max upstream, so
+  // sharing the source here is architecturally consistent.
+  const severity = Math.min(100, Math.max(60, Math.round(60 + pressure * 40)));
+
+  return [
+    createConstraintSignal("competition", "specificity_pressure", severity, {
+      specificity_pressure: Math.min(1, Math.max(0, pressure)),
+      protected_quality: "competition_specificity",
+      notes: ["Strategic specificity pressure from mesocycle execution layer"],
+    }),
+  ];
+}
+
 function interventionToSignals(intervention: InterventionDecision): ConstraintSignal[] {
   const signals: ConstraintSignal[] = [];
 
@@ -205,6 +236,7 @@ export function buildArbitrationFromEngines(input: BridgeInput): ArbitrationDeci
   const signals: ConstraintSignal[] = [
     ...recoveryToSignals(input.recovery),
     ...microcycleToSignals(input.microcycle, input.athlete_context?.competition_in_days),
+    ...mesocycleToSignals(input.mesocycle),
     ...priorityToSignals(input.priority),
     ...interventionToSignals(input.intervention),
   ];
