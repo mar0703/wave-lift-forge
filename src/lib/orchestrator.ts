@@ -53,6 +53,11 @@ import {
 } from "./weightlifting/orchestrator-signal-bridge";
 import { validateArbitrationDecision } from "./weightlifting/constraint-arbitration";
 import { getExerciseStressProfile } from "./weightlifting/exercise-stress-taxonomy";
+import {
+  validateOrchestrationSemantics,
+  type OrchestrationSemanticValidationResult,
+  type SemanticValidationMode,
+} from "./weightlifting/orchestration-semantic-validator";
 
 // Mesocycle execution integration
 import type { MacrocyclePlan } from "./weightlifting/macrocycle-engine";
@@ -106,6 +111,9 @@ export interface OrchestratorInput {
   active_mesocycle_week_index?: number;
   training_days_per_week?: number;
   athlete_level?: string;
+
+  // Semantic layer mode. Defaults to warning-only for developer-safe rollout.
+  semantic_validation_mode?: SemanticValidationMode;
 }
 
 export interface RuntimeCoachingContext {
@@ -806,6 +814,7 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
   final_context: FinalCoachContext;
   constrained_exercises: ExerciseBlock[];
   priority_notes: string[];
+  semantic_validation: OrchestrationSemanticValidationResult;
 } {
   // Build unified intelligence context
   const runtime_context = buildRuntimeCoachingContext(input);
@@ -845,8 +854,24 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
   // Apply specificity bias
   exercises = applySpecificityBias(exercises, final_context.biases.specificity_favor);
 
+  // Second-layer semantic validation. This sits after specificity bias and
+  // before final output so it can inspect the fully orchestrated workout while
+  // preserving the existing primitive/schema validation path.
+  const semantic_validation = validateOrchestrationSemantics({
+    runtime_context,
+    final_context,
+    exercises,
+    mode: input.semantic_validation_mode ?? "warning-only",
+  });
+  exercises = semantic_validation.workout;
+
   const priority_notes = [
     `Daily priority: ${final_context.intelligence_summary.daily_priority}`,
+    `Semantic confidence: ${Math.round(semantic_validation.confidence)}% (${semantic_validation.mode})`,
+    ...semantic_validation.issues.map(
+      (issue) => `Semantic ${issue.severity}: ${issue.classification}/${issue.invariant} - ${issue.message}`,
+    ),
+    ...semantic_validation.notes,
     `Recovery domains: ${Object.entries(final_context.intelligence_summary.recovery_domains)
       .map(([domain, score]) => `${domain}=${Math.round(score as number)}`)
       .join(", ")}`,
@@ -858,5 +883,6 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     final_context,
     constrained_exercises: exercises,
     priority_notes,
+    semantic_validation,
   };
 }
