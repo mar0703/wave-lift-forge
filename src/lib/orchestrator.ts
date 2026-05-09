@@ -29,9 +29,18 @@ import { evaluateRecovery } from "./weightlifting/recovery-domain-engine";
 import type { MicrocycleDecision, MicrocycleContext } from "./weightlifting/microcycle-engine";
 import { evaluateMicrocycle } from "./weightlifting/microcycle-engine";
 
-// Daily priority engine
-import type { DailyPriority, PriorityDefinition } from "./weightlifting/daily-priority-engine";
-import { PRIORITY_DEFINITIONS } from "./weightlifting/daily-priority-engine";
+// Daily priority engine — single authoritative tactical decision path
+import type {
+  DailyPriority,
+  DailyPriorityContext,
+  DailyPriorityDecision,
+  PreviousSession,
+  PriorityDefinition,
+} from "./weightlifting/daily-priority-engine";
+import {
+  PRIORITY_DEFINITIONS,
+  selectDailyPriority,
+} from "./weightlifting/daily-priority-engine";
 
 // Intervention engine
 import type { InterventionDecision, InterventionContext } from "./weightlifting/exercise-intervention-engine";
@@ -42,6 +51,17 @@ import {
   buildArbitrationFromEngines,
   type ArbitrationDecision,
 } from "./weightlifting/orchestrator-signal-bridge";
+
+// Mesocycle execution integration
+import type { MacrocyclePlan } from "./weightlifting/macrocycle-engine";
+import type {
+  MesocycleExecutionContext,
+  MesocycleExecutionInput,
+} from "./weightlifting/mesocycle-execution-layer";
+import { buildMesocycleExecutionContext } from "./weightlifting/mesocycle-execution-layer";
+import type { MesocyclePlan } from "./weightlifting/mesocycle-engine";
+import type { WeeklyStructurePlan } from "./weightlifting/weekly-structure-engine";
+import type { AdaptationTarget } from "./weightlifting/microcycle-engine";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. ORCHESTRATOR INPUT & CONTEXT TYPES
@@ -72,7 +92,18 @@ export interface OrchestratorInput {
   fatigue?: number;
   success_rate?: number;
   competition_in_days?: number;
-  adaptation_target?: "timing" | "speed" | "max_strength" | "competition" | "technical_rebuild" | "work_capacity";
+  adaptation_target?: "timing" | AdaptationTarget;
+
+  // Strategic planning artifacts for mesocycle execution integration.
+  // These are optional so existing callers can keep using the orchestrator
+  // without creating a parallel runtime pipeline.
+  macrocycle_plan?: MacrocyclePlan;
+  mesocycle_plan?: MesocyclePlan;
+  weekly_structure?: WeeklyStructurePlan;
+  active_macrocycle_block_index?: number;
+  active_mesocycle_week_index?: number;
+  training_days_per_week?: number;
+  athlete_level?: string;
 }
 
 export interface RuntimeCoachingContext {
@@ -90,6 +121,9 @@ export interface RuntimeCoachingContext {
   rolling_cns_load: number;
   rolling_technical_load: number;
   maladaptation_risk: number;
+
+  // Mesocycle execution intelligence
+  mesocycle_execution: MesocycleExecutionContext;
 
   // Daily priority intelligence
   daily_priority: DailyPriority;
@@ -122,6 +156,7 @@ export interface FinalCoachContext {
     intensity_pct: number;
     complexity_max: number;
     cns_load_ceiling: number;
+    volume_multiplier: number;
     blocked_exercises: Set<string>;
   };
   biases: {
@@ -135,48 +170,18 @@ export interface FinalCoachContext {
     microcycle_state_risk: number;
     daily_priority: DailyPriority;
     intervention_count: number;
+    adaptation_target: AdaptationTarget;
+    training_phase: MesocycleExecutionContext["training_phase"];
+    phase_intent: MesocycleExecutionContext["phase_intent"];
+    taper_state: MesocycleExecutionContext["taper_state"];
+    specificity_pressure: number;
+    weekly_direction: MesocycleExecutionContext["weekly_direction"];
   };
   notes: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. HELPER: Select Daily Priority
-// ─────────────────────────────────────────────────────────────────────────────
-
-function selectDailyPriority(
-  microcycle: MicrocycleDecision,
-  correction_state: Record<string, number>,
-  training_day: number,
-): DailyPriority {
-  // If microcycle blocks priorities, default to recovery or restoration
-  if (microcycle.blocked_priorities?.length === microcycle.biased_priorities?.length) {
-    return "recovery";
-  }
-
-  // If strong training debt in a priority, bias toward it
-  const debts = microcycle.training_debts || [];
-  if (debts.length > 0) {
-    const sortedByDebt = [...debts].sort((a, b) => b.debt_score - a.debt_score);
-    const topDebt = sortedByDebt[0];
-    if (topDebt && !microcycle.blocked_priorities?.includes(topDebt.priority)) {
-      return topDebt.priority;
-    }
-  }
-
-  // Fallback: day-of-week based + correction state
-  const dayPriorities: Record<number, DailyPriority> = {
-    1: "snatch_speed",
-    2: "clean_technique",
-    3: "squat_strength",
-    4: "jerk_strength",
-    5: "pull_strength",
-  };
-
-  return dayPriorities[training_day] || "snatch_speed";
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. RECOVERY DOMAIN CONSTRAINT APPLICATION
+// 2. RECOVERY DOMAIN CONSTRAINT APPLICATION
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface RecoveryConstraint {
@@ -388,6 +393,34 @@ function applyInterventionConstraints(decision: InterventionDecision): Intervent
   };
 }
 
+function normalizeAdaptationTarget(target?: OrchestratorInput["adaptation_target"]): AdaptationTarget | undefined {
+  if (!target || target === "timing") return undefined;
+  return target;
+}
+
+function buildMesocycleExecutionInput(input: OrchestratorInput): MesocycleExecutionInput {
+  const fallbackPhase =
+    input.engine_input.training_day_index <= 2 ? "accumulation" :
+    input.engine_input.training_day_index <= 4 ? "intensification" :
+    "peak";
+
+  return {
+    macrocycle_plan: input.macrocycle_plan,
+    mesocycle_plan: input.mesocycle_plan,
+    weekly_structure: input.weekly_structure,
+    active_block_index: input.active_macrocycle_block_index,
+    active_week_index: input.active_mesocycle_week_index,
+    active_training_day_index: input.engine_input.training_day_index,
+    training_days_per_week: input.training_days_per_week,
+    readiness: input.readiness || input.engine_input.readiness,
+    fatigue: input.fatigue || input.engine_input.fatigue_score,
+    competition_in_days: input.competition_in_days,
+    athlete_level: input.athlete_level,
+    fallback_adaptation_target: normalizeAdaptationTarget(input.adaptation_target),
+    fallback_training_phase: fallbackPhase,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 7. MAIN: Build Runtime Coaching Context
 // ─────────────────────────────────────────────────────────────────────────────
@@ -408,33 +441,64 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
   const recoveryDecision = evaluateRecovery(recoveryInput);
   const recoveryDomains = recoveryDecision.recovery_domains;
 
+  // 2a. Build strategic mesocycle execution context
+  const mesocycleExecution = buildMesocycleExecutionContext(
+    buildMesocycleExecutionInput(input),
+  );
+
   // 3. Call microcycle-engine
   const microcycleCtx: MicrocycleContext = {
     recent_sessions: input.recent_sessions || [],
     readiness: input.readiness || input.engine_input.readiness,
     fatigue: input.fatigue || input.engine_input.fatigue_score,
-    training_phase: input.engine_input.training_day_index <= 2 ? "accumulation" : 
-                    input.engine_input.training_day_index <= 4 ? "intensification" : "peak",
-    adaptation_target: input.adaptation_target as any,
+    training_phase: mesocycleExecution.training_phase,
+    adaptation_target: mesocycleExecution.adaptation_target,
     competition_in_days: input.competition_in_days,
   };
   const microcycleDecision = evaluateMicrocycle(microcycleCtx);
 
-  // 4. Select daily priority
-  const dailyPriority = selectDailyPriority(
-    microcycleDecision,
-    input.correction_state || {},
-    input.engine_input.training_day_index,
+  // 4. Select daily tactical priority — single authoritative call.
+  //    Weekly structure and mesocycle execution feed in as scoring biases
+  //    only; the daily-priority-engine retains adaptive tactical autonomy.
+  const plannedWeeklyPriority = mesocycleExecution.weekly_direction.weekly_structure?.days.find(
+    (d) => d.day_index === input.engine_input.training_day_index,
+  )?.primary_priority;
+
+  const previous_sessions: PreviousSession[] = (input.recent_sessions ?? []).map(
+    (s) => ({
+      date: s.date,
+      cns_load: s.cns_load,
+      heavy_pull: (s.pull_stress ?? 0) >= 70,
+      heavy_squat: (s.squat_stress ?? 0) >= 70,
+      heavy_overhead: (s.overhead_stress ?? 0) >= 70,
+    }),
   );
-  const priorityDef = PRIORITY_DEFINITIONS[dailyPriority];
+
+  const priorityCtx: DailyPriorityContext = {
+    readiness: input.readiness ?? input.engine_input.readiness,
+    fatigue: input.fatigue ?? input.engine_input.fatigue_score,
+    training_phase: mesocycleExecution.training_phase,
+    competition_in_days: input.competition_in_days,
+    problems: [],
+    previous_sessions,
+    weekly_planned_priority: plannedWeeklyPriority,
+    biased_priorities: microcycleDecision.biased_priorities,
+    blocked_priorities: microcycleDecision.blocked_priorities,
+    recovery_recommended: microcycleDecision.recovery_recommended,
+    restoration_recommended: microcycleDecision.restoration_recommended,
+  };
+
+  const priorityDecision: DailyPriorityDecision = selectDailyPriority(priorityCtx);
+  const dailyPriority = priorityDecision.daily_priority;
+  const priorityDef = priorityDecision.definition;
 
   // 5. Call intervention-engine
   const interventionCtx: InterventionContext = {
     problems: detected,
-    adaptation_target: input.adaptation_target === "max_strength" ? "strength" :
-                      input.adaptation_target === "technical_rebuild" ? "technical_restoration" :
-                      input.adaptation_target === "competition" ? "specificity" :
-                      input.adaptation_target as any,
+    adaptation_target: mesocycleExecution.adaptation_target === "max_strength" ? "strength" :
+                      mesocycleExecution.adaptation_target === "technical_rebuild" ? "technical_restoration" :
+                      mesocycleExecution.adaptation_target === "competition" ? "specificity" :
+                      mesocycleExecution.adaptation_target as any,
     fatigue_state: (input.fatigue || 0) > 70 ? "high" : (input.fatigue || 0) > 40 ? "moderate" : "fresh",
     competition_in_days: input.competition_in_days,
     recent_intervention_count: 0,
@@ -457,16 +521,7 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
   const arbitration = buildArbitrationFromEngines({
     recovery: recoveryDecision,
     microcycle: microcycleDecision,
-    priority: {
-      daily_priority: dailyPriority,
-      definition: priorityDef,
-      primary_focus: "",
-      technical_focus: [],
-      fatigue_focus: "",
-      priority_notes: [],
-      candidates: [],
-      rejected: [],
-    },
+    priority: priorityDecision,
     intervention: interventionDecision,
     athlete_context: {
       competition_in_days: input.competition_in_days,
@@ -475,8 +530,8 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     },
   });
 
-  // 11. MERGE all constraints into unified context
-  // Most restrictive ceiling wins
+  // 11. Legacy helper merge retained for compatibility during migration.
+  // The active runtime authority is the arbitration decision below.
   const intensity_ceiling = Math.min(
     recoveryConstraint.intensity_ceiling,
     microcycleConstraint.intensity_ceiling,
@@ -502,6 +557,7 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
   const specificity_pressure = Math.max(
     microcycleConstraint.specificity_pressure,
     microcycleDecision.notes?.some((n) => n.includes("competition")) ? 0.8 : 0,
+    mesocycleExecution.specificity_pressure,
   );
 
   // Collect all notes
@@ -510,6 +566,7 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     ...microcycleConstraint.notes,
     ...priorityConstraint.notes,
     ...interventionConstraint.notes,
+    ...mesocycleExecution.notes,
   ];
 
   return {
@@ -525,6 +582,8 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     rolling_technical_load: microcycleDecision.microcycle_state.rolling_technical_load,
     maladaptation_risk: microcycleDecision.microcycle_state.maladaptation_risk || 0,
 
+    mesocycle_execution: mesocycleExecution,
+
     daily_priority: dailyPriority,
     priority_definition: priorityDef,
 
@@ -532,13 +591,16 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     safe_exercises: interventionConstraint.safe_exercises,
     blocked_exercises: interventionConstraint.blocked_exercises,
 
-    intensity_ceiling,
-    complexity_tolerance,
-    cns_load_ceiling,
-    restoration_bias,
-    specificity_pressure,
+    intensity_ceiling: arbitration.final_intensity_ceiling,
+    complexity_tolerance: arbitration.final_complexity_ceiling,
+    cns_load_ceiling: arbitration.final_cns_load_ceiling,
+    restoration_bias: arbitration.final_restoration_bias,
+    specificity_pressure: arbitration.final_specificity_pressure,
     intervention_bias: interventionConstraint.bias_exercises,
-    blocked_ids: new Set(interventionConstraint.blocked_exercises),
+    blocked_ids: new Set([
+      ...interventionConstraint.blocked_exercises,
+      ...arbitration.blocked_exercises,
+    ]),
 
     arbitration,
 
@@ -551,17 +613,23 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildFinalCoachContext(runtime: RuntimeCoachingContext): FinalCoachContext {
+  const arbitrationBlocked = new Set<string>([
+    ...runtime.blocked_ids,
+    ...runtime.arbitration.blocked_exercises,
+  ]);
+
   return {
     base_workout: runtime.base_workout.exercises,
     constraints: {
-      intensity_pct: runtime.intensity_ceiling,
-      complexity_max: runtime.complexity_tolerance,
-      cns_load_ceiling: runtime.cns_load_ceiling,
-      blocked_exercises: runtime.blocked_ids,
+      intensity_pct: runtime.arbitration.final_intensity_ceiling,
+      complexity_max: runtime.arbitration.final_complexity_ceiling,
+      cns_load_ceiling: runtime.arbitration.final_cns_load_ceiling,
+      volume_multiplier: runtime.arbitration.final_volume_multiplier,
+      blocked_exercises: arbitrationBlocked,
     },
     biases: {
-      restoration_favor: runtime.restoration_bias,
-      specificity_favor: runtime.specificity_pressure,
+      restoration_favor: runtime.arbitration.final_restoration_bias,
+      specificity_favor: runtime.arbitration.final_specificity_pressure,
       intervention_exercise_ids: runtime.intervention_bias,
       preferred_families: runtime.priority_definition.preferred_families || [],
     },
@@ -570,8 +638,17 @@ export function buildFinalCoachContext(runtime: RuntimeCoachingContext): FinalCo
       microcycle_state_risk: runtime.maladaptation_risk,
       daily_priority: runtime.daily_priority,
       intervention_count: runtime.intervention_decision.selected_interventions.length,
+      adaptation_target: runtime.mesocycle_execution.adaptation_target,
+      training_phase: runtime.mesocycle_execution.training_phase,
+      phase_intent: runtime.mesocycle_execution.phase_intent,
+      taper_state: runtime.mesocycle_execution.taper_state,
+      specificity_pressure: runtime.mesocycle_execution.specificity_pressure,
+      weekly_direction: runtime.mesocycle_execution.weekly_direction,
     },
-    notes: runtime.notes,
+    notes: [
+      ...runtime.notes,
+      ...runtime.arbitration.arbitration_notes,
+    ],
   };
 }
 
@@ -591,7 +668,7 @@ export function applyOrchestratorConstraints(
   context: FinalCoachContext,
 ): ExerciseBlock[] {
   const {
-    constraints: { intensity_pct, complexity_max, blocked_exercises },
+    constraints: { intensity_pct, complexity_max, volume_multiplier, blocked_exercises },
     biases: { intervention_exercise_ids },
   } = context;
 
@@ -611,6 +688,7 @@ export function applyOrchestratorConstraints(
       if (intervention_exercise_ids.has(ex.exercise_id)) {
         sets = Math.round(sets * 1.1);
       }
+      sets = Math.max(1, Math.round(sets * volume_multiplier));
 
       return {
         ...ex,

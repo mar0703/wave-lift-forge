@@ -327,6 +327,25 @@ export interface DailyPriorityContext {
   weekly_counts?: Partial<Record<DailyPriority, number>>;
   /** Optional explicit override from the coach. */
   override?: DailyPriority;
+
+  // ── Strategic bias inputs (scoring only — not direct selection) ──
+  /**
+   * Weekly structure suggestion for this day. Biases candidate scoring
+   * upward but does NOT directly select the tactical priority — the engine
+   * remains free to pick another candidate when athlete state demands it.
+   */
+  weekly_planned_priority?: DailyPriority;
+  /** Microcycle soft bias — these priorities receive a scoring boost. */
+  biased_priorities?: DailyPriority[];
+  /**
+   * Microcycle hard safety — these priorities are excluded from the
+   * candidate pool. Used for blocked-priority safety logic.
+   */
+  blocked_priorities?: DailyPriority[];
+  /** Microcycle recovery safety: strongly bias recovery and suppress high CNS. */
+  recovery_recommended?: boolean;
+  /** Microcycle restoration safety: bias technical restoration. */
+  restoration_recommended?: boolean;
 }
 
 export interface PriorityCandidate {
@@ -535,6 +554,38 @@ function scoreCandidate(
   // ── (f) Mild baseline so under-served priorities surface ─────
   score += 1;
 
+  // ── (g) Weekly structure bias (scoring only) ─────────────────
+  // Weekly plan informs the score but never overrides athlete state.
+  if (ctx.weekly_planned_priority === id) {
+    score += 6;
+    reasons.push("aligned with weekly structure plan");
+  }
+
+  // ── (h) Microcycle soft bias ─────────────────────────────────
+  if (ctx.biased_priorities?.includes(id)) {
+    score += 4;
+    reasons.push("microcycle directional bias");
+  }
+
+  // ── (i) Recovery / restoration safety bias ───────────────────
+  if (ctx.recovery_recommended) {
+    if (id === "recovery") {
+      score += 14;
+      reasons.push("microcycle recovery recommended");
+    } else if (def.max_cns_load >= 75) {
+      score -= 8;
+      penalties.push("recovery recommended — suppress high CNS work");
+    }
+  }
+  if (ctx.restoration_recommended) {
+    if (id === "technical_restoration") {
+      score += 10;
+      reasons.push("microcycle restoration recommended");
+    } else if (id === "recovery") {
+      score += 4;
+    }
+  }
+
   return { id, score, reasons, penalties };
 }
 
@@ -546,13 +597,22 @@ export function selectDailyPriority(
     (a, b) => b.score - a.score,
   );
 
+  // Hard safety: blocked priorities are removed from the candidate pool.
+  const blockedSet = new Set(ctx.blocked_priorities ?? []);
+
   let chosen: DailyPriority;
   const overrideNote: string[] = [];
   if (ctx.override && PRIORITY_DEFINITIONS[ctx.override]) {
     chosen = ctx.override;
     overrideNote.push(`coach override → ${ctx.override}`);
   } else {
-    chosen = candidates[0]?.id ?? "technical_restoration";
+    const allowed = candidates.filter((c) => !blockedSet.has(c.id));
+    if (allowed.length > 0) {
+      chosen = allowed[0].id;
+    } else {
+      // Everything blocked — fall back to the safest non-blocked priority.
+      chosen = blockedSet.has("recovery") ? "technical_restoration" : "recovery";
+    }
   }
 
   const def = PRIORITY_DEFINITIONS[chosen];
