@@ -18,6 +18,10 @@ import {
   type CorrectionDecision,
   type TrainingPhase as CETrainingPhase,
 } from "./weightlifting/correction-engine";
+import {
+  interventionArbiter,
+  type InterventionDecision as InterventionArbiterDecision,
+} from "./weightlifting/intervention-arbiter";
 
 // ─────────────────── 1. Central state ───────────────────
 export interface AthleteState {
@@ -30,6 +34,24 @@ export interface AthleteState {
   correction_state: Record<string, number>;
   training_day_index: number; // 1-5
   competition_mode: boolean;
+
+  // Optional governance context for deciding whether correction is appropriate.
+  competition_in_days?: number;
+  training_age_months?: number;
+  athlete_level?: "novice" | "intermediate" | "advanced" | "elite";
+  success_consistency?: number;
+  session_context?: {
+    set_to_set_degradation?: boolean;
+    load_dependent_degradation?: boolean;
+    heavy_microcycle_accumulation?: boolean;
+    stable_competition_performance?: boolean;
+    movement_pattern_established?: boolean;
+    established_movement_signature?: boolean;
+    psychological_instability?: boolean;
+    post_injury_return?: boolean;
+    high_cognitive_load_required?: boolean;
+    expected_benefit?: "low" | "moderate" | "high";
+  };
 }
 
 export type ExerciseFamily = "snatch" | "clean" | "pull" | "squat";
@@ -206,8 +228,18 @@ function trainingPhaseFor(s: AthleteState): CETrainingPhase {
 export function techniqueModule(
   s: AthleteState,
   detected: string[],
-): Adjustment & { decision?: CorrectionDecision; primary?: string; correctives: string[] } {
-  const adj: Adjustment & { decision?: CorrectionDecision; primary?: string; correctives: string[] } = {
+): Adjustment & {
+  decision?: CorrectionDecision;
+  arbiter_decision?: InterventionArbiterDecision;
+  primary?: string;
+  correctives: string[];
+} {
+  const adj: Adjustment & {
+    decision?: CorrectionDecision;
+    arbiter_decision?: InterventionArbiterDecision;
+    primary?: string;
+    correctives: string[];
+  } = {
     module: "Technique",
     correctives: [],
     notes: [],
@@ -222,6 +254,33 @@ export function techniqueModule(
   }
 
   if (!activeProblems.size) return adj;
+
+  const arbiterDecision = interventionArbiter({
+    readiness: s.readiness,
+    fatigue: s.fatigue,
+    detected_problems: [...activeProblems],
+    success_rate: s.success_rate,
+    success_consistency: s.success_consistency,
+    competition_in_days: s.competition_in_days,
+    training_age_months: s.training_age_months,
+    athlete_level: s.athlete_level,
+    session_context: s.session_context,
+  });
+  adj.arbiter_decision = arbiterDecision;
+  adj.notes!.push(
+    `Intervention arbiter: ${arbiterDecision.intervention_mode} ` +
+      `(risk=${arbiterDecision.intervention_risk}, scope=${arbiterDecision.intervention_scope})`,
+  );
+  adj.notes!.push(...arbiterDecision.reasons);
+  if (arbiterDecision.warnings?.length) adj.notes!.push(...arbiterDecision.warnings);
+  if (arbiterDecision.recommendations?.length) adj.notes!.push(...arbiterDecision.recommendations);
+
+  if (!arbiterDecision.intervention_allowed) {
+    if (arbiterDecision.intervention_scope === "recovery_only") {
+      adj.global = { intensity_multiplier: 0.85, volume_multiplier: 0.75 };
+    }
+    return adj;
+  }
 
   const ctx: CorrectionContext = {
     problems: [...activeProblems],
@@ -239,7 +298,7 @@ export function techniqueModule(
   const ids = decision.selected_correctives
     .map((c) => c.exercise_id)
     .filter((id) => !!getExerciseById(id))
-    .slice(0, 2);
+    .slice(0, arbiterDecision.intervention_scope === "minimal" ? 1 : 2);
   adj.correctives = ids;
   adj.add_exercises = ids.map((id) => ({ id, role: "corrective" }));
 
@@ -248,6 +307,7 @@ export function techniqueModule(
   if (decision.trend === "worsening") cap = 70;
   else if (decision.correction_stage === "integration") cap = 80;
   else if (decision.correction_stage === "automation") cap = 85;
+  if (arbiterDecision.intervention_scope === "minimal") cap = Math.min(cap, 70);
   adj.global = { set_intensity_pct: cap };
 
   adj.notes!.push(
@@ -385,6 +445,7 @@ export interface CoachOutput {
   correction_strategy?: string[];
   selected_correctives?: string[];
   trend?: string;
+  intervention_arbiter?: InterventionArbiterDecision;
   injected_exercises: string[];
   notes: string[];
 }
@@ -455,6 +516,7 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
     correction_strategy: decision?.correction_strategy,
     selected_correctives: decision?.selected_correctives.map((c) => c.exercise_id),
     trend: decision?.trend,
+    intervention_arbiter: technique.arbiter_decision,
     injected_exercises: injected,
     notes: allNotes,
   };
