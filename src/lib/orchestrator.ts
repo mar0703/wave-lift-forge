@@ -58,6 +58,7 @@ import {
   type OrchestrationSemanticValidationResult,
   type SemanticValidationMode,
 } from "./weightlifting/orchestration-semantic-validator";
+import { recordUnknownExerciseBypass } from "./weightlifting/orchestrator-telemetry";
 
 // Mesocycle execution integration
 import type { MacrocyclePlan } from "./weightlifting/macrocycle-engine";
@@ -680,15 +681,31 @@ export function buildFinalCoachContext(runtime: RuntimeCoachingContext): FinalCo
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Optional telemetry context for applyOrchestratorConstraints. Used to record
+ * unknown-profile bypass events with caller, validation mode, and arbitration
+ * snapshot — observability only, no behavior change.
+ */
+export interface OrchestratorConstraintsTelemetry {
+  caller?: string;
+  validation_mode?: SemanticValidationMode;
+  arbitration?: ArbitrationDecision;
+}
+
+/**
  * Apply orchestrator constraints to a set of exercises.
  * - Removes blocked exercises
  * - Caps intensity based on constraints
  * - Reduces complexity if needed
  * - Biases toward intervention exercises
+ *
+ * Phase A: unknown-profile bypass remains in effect (exercises without a
+ * stress profile are not filtered by the complexity ceiling). Each bypass is
+ * recorded via orchestrator-telemetry for later audit.
  */
 export function applyOrchestratorConstraints(
   exercises: ExerciseBlock[],
   context: FinalCoachContext,
+  telemetry?: OrchestratorConstraintsTelemetry,
 ): ExerciseBlock[] {
   const {
     constraints: { intensity_pct, complexity_max, volume_multiplier, blocked_exercises },
@@ -700,9 +717,34 @@ export function applyOrchestratorConstraints(
     .filter((ex) => {
       // Drop exercises whose stress-taxonomy complexity exceeds the
       // arbitrated ceiling. Unknown exercises (no profile) pass through —
-      // we never block what the taxonomy hasn't classified.
+      // Phase A keeps this behavior but records every occurrence so the
+      // taxonomy-integrity audit can surface them.
       const profile = getExerciseStressProfile(ex.exercise_id);
-      if (!profile) return true;
+      if (!profile) {
+        recordUnknownExerciseBypass({
+          exercise_id: ex.exercise_id,
+          caller: telemetry?.caller ?? "applyOrchestratorConstraints",
+          validation_mode: telemetry?.validation_mode ?? "unset",
+          recorded_at: Date.now(),
+          constraint_snapshot: {
+            complexity_max,
+            intensity_pct,
+            volume_multiplier,
+            blocked_exercises_count: blocked_exercises.size,
+          },
+          arbitration_snapshot: telemetry?.arbitration
+            ? {
+                final_complexity_ceiling: telemetry.arbitration.final_complexity_ceiling,
+                final_intensity_ceiling: telemetry.arbitration.final_intensity_ceiling,
+                final_cns_load_ceiling: telemetry.arbitration.final_cns_load_ceiling,
+                blocked_stress_classes: Array.from(telemetry.arbitration.blocked_stress_classes),
+                blocked_exercises_count: telemetry.arbitration.blocked_exercises.size,
+                dominant_sources: [...telemetry.arbitration.dominant_sources],
+              }
+            : undefined,
+        });
+        return true;
+      }
       return profile.complexity <= complexity_max;
     })
     .map((ex) => {
@@ -824,6 +866,11 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
   let exercises = applyOrchestratorConstraints(
     final_context.base_workout,
     final_context,
+    {
+      caller: "orchestrateAndPrepareWorkout",
+      validation_mode: input.semantic_validation_mode ?? "warning-only",
+      arbitration: runtime_context.arbitration,
+    },
   );
 
   // Enforce arbitrated stress-class blocks. protected_stress_classes is

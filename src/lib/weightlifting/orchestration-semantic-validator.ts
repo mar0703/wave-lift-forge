@@ -76,6 +76,19 @@ const PULL_CANDIDATES = ["snatch_pull", "clean_pull", "snatch_deadlift", "clean_
 const SQUAT_CANDIDATES = ["back_squat", "front_squat", "pause_back_squat", "pause_front_squat"];
 const RESTORATION_CANDIDATES = ["tall_snatch", "tall_clean", "muscle_snatch", "jerk_dip"];
 
+/**
+ * Read-only view of every repair candidate list the semantic validator may
+ * inject during fallback. Exposed for the taxonomy-integrity audit so it can
+ * cross-check that every referenced exercise has a stress profile registered.
+ */
+export const REPAIR_CANDIDATES: Readonly<Record<string, readonly string[]>> = {
+  classic: CLASSIC_CANDIDATES,
+  lower_body: LOWER_BODY_CANDIDATES,
+  pull: PULL_CANDIDATES,
+  squat: SQUAT_CANDIDATES,
+  restoration: RESTORATION_CANDIDATES,
+};
+
 function average(values: number[]): number {
   if (!values.length) return 0;
   return values.reduce((sum, value) => sum + value, 0) / values.length;

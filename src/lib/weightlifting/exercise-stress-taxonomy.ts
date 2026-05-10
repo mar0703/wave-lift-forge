@@ -138,6 +138,22 @@ const EXERCISE_STRESS_PROFILES: Record<string, ExerciseStressProfile> = {
     notes: ["Full competition movement", "Highest coordination complexity", "Two-phase lift"],
   },
 
+  clean: {
+    exercise_id: "clean",
+    cns_cost: 80,
+    coordination_cost: 88,
+    technical_cost: 88,
+    overhead_cost: 50,
+    eccentric_cost: 65,
+    speed_cost: 85,
+    local_muscular_cost: 75,
+    complexity: 8,
+    stress_class: "classic_competition",
+    specificity_score: 92,
+    recovery_disruption: 75,
+    notes: ["Full clean (no jerk)", "Catch + recovery", "Lower overhead than clean_and_jerk"],
+  },
+
   // ── POWER VARIATIONS ──
   power_snatch: {
     exercise_id: "power_snatch",
@@ -204,6 +220,38 @@ const EXERCISE_STRESS_PROFILES: Record<string, ExerciseStressProfile> = {
     notes: ["Maximum eccentric stress", "Pull strength development", "High local fatigue"],
   },
 
+  snatch_deadlift: {
+    exercise_id: "snatch_deadlift",
+    cns_cost: 50,
+    coordination_cost: 50,
+    technical_cost: 55,
+    overhead_cost: 15,
+    eccentric_cost: 90,
+    speed_cost: 30,
+    local_muscular_cost: 85,
+    complexity: 4,
+    stress_class: "pull_technical",
+    specificity_score: 55,
+    recovery_disruption: 60,
+    notes: ["Slow snatch pull at deadlift tempo", "Position and starting strength", "Low speed demand"],
+  },
+
+  clean_deadlift: {
+    exercise_id: "clean_deadlift",
+    cns_cost: 55,
+    coordination_cost: 50,
+    technical_cost: 50,
+    overhead_cost: 15,
+    eccentric_cost: 95,
+    speed_cost: 25,
+    local_muscular_cost: 90,
+    complexity: 4,
+    stress_class: "pull_technical",
+    specificity_score: 60,
+    recovery_disruption: 65,
+    notes: ["Slow clean pull at deadlift tempo", "Position and starting strength", "Highest eccentric stress"],
+  },
+
   // ── SQUAT VARIATIONS ──
   front_squat: {
     exercise_id: "front_squat",
@@ -235,6 +283,38 @@ const EXERCISE_STRESS_PROFILES: Record<string, ExerciseStressProfile> = {
     specificity_score: 60,
     recovery_disruption: 65,
     notes: ["Maximum local muscular stress", "Lower technical demand", "High eccentric loading"],
+  },
+
+  pause_back_squat: {
+    exercise_id: "pause_back_squat",
+    cns_cost: 60,
+    coordination_cost: 55,
+    technical_cost: 65,
+    overhead_cost: 20,
+    eccentric_cost: 90,
+    speed_cost: 25,
+    local_muscular_cost: 100,
+    complexity: 6,
+    stress_class: "squat_maximal",
+    specificity_score: 60,
+    recovery_disruption: 75,
+    notes: ["Pause at bottom of back squat", "Maximal local stress", "Tempo discipline"],
+  },
+
+  pause_front_squat: {
+    exercise_id: "pause_front_squat",
+    cns_cost: 65,
+    coordination_cost: 65,
+    technical_cost: 75,
+    overhead_cost: 40,
+    eccentric_cost: 80,
+    speed_cost: 30,
+    local_muscular_cost: 90,
+    complexity: 7,
+    stress_class: "squat_maximal",
+    specificity_score: 80,
+    recovery_disruption: 75,
+    notes: ["Pause at bottom of front squat", "Position strength + stability", "Front rack demand"],
   },
 
   // ── JERK VARIATIONS ──
@@ -286,6 +366,38 @@ const EXERCISE_STRESS_PROFILES: Record<string, ExerciseStressProfile> = {
     notes: ["Competition jerk", "Maximal overhead stress", "High technical precision"],
   },
 
+  jerk: {
+    exercise_id: "jerk",
+    cns_cost: 70,
+    coordination_cost: 82,
+    technical_cost: 88,
+    overhead_cost: 88,
+    eccentric_cost: 40,
+    speed_cost: 70,
+    local_muscular_cost: 60,
+    complexity: 8,
+    stress_class: "overhead_maximal",
+    specificity_score: 88,
+    recovery_disruption: 65,
+    notes: ["Stand-alone jerk (rack/blocks)", "Maximal overhead demand", "Lower CNS than full clean_and_jerk"],
+  },
+
+  jerk_dip: {
+    exercise_id: "jerk_dip",
+    cns_cost: 25,
+    coordination_cost: 40,
+    technical_cost: 45,
+    overhead_cost: 25,
+    eccentric_cost: 20,
+    speed_cost: 40,
+    local_muscular_cost: 30,
+    complexity: 2,
+    stress_class: "restoration_coordination",
+    specificity_score: 35,
+    recovery_disruption: 15,
+    notes: ["Dip and drive rehearsal", "Position drill", "Minimal stress"],
+  },
+
   // ── RESTORATION / TECHNICAL VARIATIONS ──
   tall_snatch: {
     exercise_id: "tall_snatch",
@@ -333,6 +445,22 @@ const EXERCISE_STRESS_PROFILES: Record<string, ExerciseStressProfile> = {
     specificity_score: 50,
     recovery_disruption: 35,
     notes: ["Speed under restoration", "Drop catch", "Minimal eccentric stress"],
+  },
+
+  muscle_snatch: {
+    exercise_id: "muscle_snatch",
+    cns_cost: 40,
+    coordination_cost: 55,
+    technical_cost: 60,
+    overhead_cost: 60,
+    eccentric_cost: 25,
+    speed_cost: 55,
+    local_muscular_cost: 40,
+    complexity: 4,
+    stress_class: "restoration_coordination",
+    specificity_score: 45,
+    recovery_disruption: 30,
+    notes: ["Snatch with no re-bend", "Upper-pull and turnover focus", "Restoration / technical drill"],
   },
 
   // ── SEGMENTED / PAUSE WORK ──
