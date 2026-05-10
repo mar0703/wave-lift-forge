@@ -1,43 +1,58 @@
 // State Engine
 // -----------------------------------------------------------------------------
-// Lightweight coaching-state interpreter that converts repeated session
-// snapshots into meaningful coaching state.
+// Deterministic coaching-state interpreter that converts repeated session
+// snapshots into meaningful temporal memory.
 //
 // This is NOT a database layer.
 // This is NOT ML.
 // This is NOT a full athlete history system.
 //
-// Core purpose: introduce temporal memory and trajectory awareness
-// into the coaching system using pure deterministic functions.
+// RESPONSIBILITY BOUNDARIES (strict):
+//   State Engine     → observes repeated patterns over time
+//   Arbiter          → decides whether intervention is appropriate
+//   Correction Engine→ decides how to correct
+//
+// State Engine MUST NOT:
+//   - select exercises
+//   - assign severity scores
+//   - estimate diagnostic confidence
+//   - evaluate correction success
+//   - claim physiological inference (systemic / resolved fatigue, etc.)
+//   - simulate coaching intelligence
+//
+// Every view carries a `confidence` rating and the engine surfaces a
+// `data_gaps` list. Downstream layers decide how much to trust each view.
+// -----------------------------------------------------------------------------
 
 // ── Core State Concepts ──────────────────────────────────────────────────────
 
 /** How long a problem has been observed across sessions */
 export type ProblemPersistence =
-  | "transient"          // appeared once — likely noise or fatigue artifact
-  | "emerging"           // appeared 2+ sessions — developing pattern
-  | "persistent_pattern" // appeared 4+ sessions — stable technical issue
-  | "chronic";           // appeared 14+ days — deeply ingrained
+  | "transient"            // appeared once — likely noise or fatigue artifact
+  | "emerging"             // appeared 2+ sessions — developing pattern
+  | "persistent_pattern"   // appeared 4+ sessions — stable observation
+  | "chronic";             // appeared over 14+ days — long-running observation
 
 /** Direction of performance change across sessions */
 export type PerformanceTrend =
-  | "improving"   // getting better
-  | "stable"      // no significant change
-  | "declining";  // getting worse
+  | "improving"
+  | "stable"
+  | "declining"
+  | "unknown";             // insufficient data
 
-/** Type of fatigue accumulation pattern */
+/**
+ * Type of fatigue accumulation pattern.
+ *
+ * Limited intentionally to what is observable from session readings.
+ * No physiological / systemic recovery claims.
+ */
 export type FatiguePattern =
-  | "acute"       // single-session spike
-  | "accumulated" // multi-session buildup
-  | "systemic"    // chronic fatigue trend
-  | "resolved";   // fatigue clearing
+  | "acute"                // single-session spike
+  | "accumulated"          // multi-session buildup
+  | "stable";              // no clear pattern from available data
 
-/** How athlete responded to intervention */
-export type InterventionResponse =
-  | "improving"   // getting better after intervention
-  | "unchanged"   // no change after intervention
-  | "worsening"   // getting worse after intervention
-  | "unstable";   // inconsistent response
+/** Per-view confidence rating. */
+export type Confidence = "low" | "medium" | "high";
 
 // ── Athlete Session Snapshot ─────────────────────────────────────────────────
 
@@ -45,86 +60,115 @@ export type InterventionResponse =
 export interface AthleteSessionSnapshot {
   /** Session timestamp (ms since epoch) */
   timestamp: number;
-
-  /** Readiness score (0-100) */
+  /** Readiness score (0-100 or 0-10) */
   readiness: number;
-
   /** Fatigue score (0-100) */
   fatigue: number;
-
   /** Success rate for the session (0-100) */
   success_rate: number;
-
   /** Average RPE for the session (6-10 scale) */
   average_RPE: number;
-
   /** Problems detected in this session */
   detected_problems: string[];
-
   /** Whether any intervention was applied */
   intervention_applied?: boolean;
-
   /** Primary problem targeted (if intervention applied) */
   primary_problem?: string;
-
   /** Optional session notes */
   notes?: string[];
 }
 
 // ── Derived Coaching State ───────────────────────────────────────────────────
 
-/** Coaching state derived from session history */
+export interface ProblemPersistenceView {
+  classification: ProblemPersistence;
+  /** Number of sessions in which this problem was observed (within window). */
+  sessions_observed: number;
+  /** Days span between first and last observation (within window). */
+  days_span: number;
+  confidence: Confidence;
+  notes: string[];
+}
+
+export interface PerformanceTrendView {
+  trend: PerformanceTrend;
+  /** Number of sessions used for the trend calculation. */
+  sessions_analyzed: number;
+  confidence: Confidence;
+  notes: string[];
+}
+
+export interface FatiguePatternView {
+  pattern: FatiguePattern;
+  /** Number of sessions inspected for the pattern. */
+  sessions_analyzed: number;
+  confidence: Confidence;
+  notes: string[];
+}
+
+/** Coaching state derived from session history. */
 export interface DerivedCoachingState {
-  /** Persistence classification for each observed problem */
-  persistence_by_problem: Record<string, ProblemPersistence>;
-
-  /** Overall performance trend direction */
-  performance_trend: PerformanceTrend;
-
-  /** Current fatigue accumulation pattern */
-  fatigue_pattern: FatiguePattern;
-
-  /** Response to last intervention (if any) */
-  intervention_response?: InterventionResponse;
-
-  /** Movement stability score (0-100) — lower = more variable */
-  movement_stability_score: number;
-
-  /** Confidence placeholder (future integration) */
-  confidence_score?: number;
-
-  /** Debug notes (e.g., ordering corrections) — for development use only */
-  _debug_notes?: string[];
+  /** Persistence view per observed problem. */
+  persistence_by_problem: Record<string, ProblemPersistenceView>;
+  /** Overall performance trend view. */
+  performance: PerformanceTrendView;
+  /** Current fatigue pattern view. */
+  fatigue: FatiguePatternView;
+  /** Engine-wide observations. */
+  meta: {
+    sessions_in_window: number;
+    overall_confidence: Confidence;
+    data_gaps: string[];
+    notes: string[];
+  };
 }
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
 export interface StateEngineConfig {
-  /** Minimum sessions required for analysis (default: 3) */
-  min_sessions: number;
-
-  /** Maximum sessions to consider (default: 10) */
+  /** Minimum sessions required for medium-confidence views (default: 3) */
+  min_sessions_medium_confidence: number;
+  /** Sessions threshold for high-confidence views (default: 5) */
+  min_sessions_high_confidence: number;
+  /** Maximum sessions to consider in window (default: 10) */
   max_sessions: number;
-
   /** Days threshold for chronic classification (default: 14) */
   chronic_days_threshold: number;
-
   /** Sessions threshold for persistent_pattern classification (default: 4) */
   persistent_sessions_threshold: number;
-
-  /** Success rate change threshold for trend detection (default: 10) */
-  trend_threshold: number;
+  /** Success-rate Δ (pp) threshold for trend detection (default: 8) */
+  success_trend_delta: number;
+  /** RPE Δ threshold for trend detection (default: 0.6) */
+  rpe_trend_delta: number;
+  /** Fatigue Δ threshold for accumulated-pattern detection (default: 10) */
+  fatigue_trend_delta: number;
+  /** Spike threshold for acute fatigue detection (default: 75) */
+  acute_fatigue_threshold: number;
 }
 
 const DEFAULT_CONFIG: StateEngineConfig = {
-  min_sessions: 3,
+  min_sessions_medium_confidence: 3,
+  min_sessions_high_confidence: 5,
   max_sessions: 10,
   chronic_days_threshold: 14,
   persistent_sessions_threshold: 4,
-  trend_threshold: 10,
+  success_trend_delta: 8,
+  rpe_trend_delta: 0.6,
+  fatigue_trend_delta: 10,
+  acute_fatigue_threshold: 75,
 };
 
 // ── Internal Helpers ─────────────────────────────────────────────────────────
+
+function clamp(n: number, lo: number, hi: number): number {
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function mean(xs: number[]): number {
+  if (xs.length === 0) return 0;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
 
 /**
  * Normalize readiness score to 0-100 scale.
@@ -135,12 +179,38 @@ function normalizeReadiness(r: number): number {
   return r <= 10 ? r * 10 : r;
 }
 
+function confidenceFromSampleSize(
+  n: number,
+  cfg: StateEngineConfig,
+): Confidence {
+  if (n >= cfg.min_sessions_high_confidence) return "high";
+  if (n >= cfg.min_sessions_medium_confidence) return "medium";
+  return "low";
+}
+
+/**
+ * Conservative trend interpretation: compare first-half average vs
+ * second-half average over the window. Returns the delta (second − first).
+ *
+ * Returns 0 if window cannot be split (sample size < 2).
+ *
+ * This is intentionally simpler than statistical regression. It rejects
+ * single-point outliers more reliably than `last − first` and stays
+ * explainable to a coach reading the notes.
+ */
+function halfSplitDelta(values: number[]): number {
+  if (values.length < 2) return 0;
+  const mid = Math.floor(values.length / 2);
+  const firstHalf = values.slice(0, mid);
+  const secondHalf = values.slice(values.length - mid);
+  if (firstHalf.length === 0 || secondHalf.length === 0) return 0;
+  return mean(secondHalf) - mean(firstHalf);
+}
+
 /**
  * Validate and normalize session history ordering.
  * Engine expects oldest-first ordering. If timestamps suggest newest-first,
  * the array is automatically reversed with a warning note added.
- *
- * Returns: { sessions: normalized array, notes: any ordering warnings }
  */
 function normalizeHistoryOrdering(
   sessions: AthleteSessionSnapshot[],
@@ -151,14 +221,12 @@ function normalizeHistoryOrdering(
     return { sessions, notes };
   }
 
-  // Check ordering by comparing first and last timestamps
   const firstTimestamp = sessions[0].timestamp;
   const lastTimestamp = sessions[sessions.length - 1].timestamp;
 
   if (firstTimestamp > lastTimestamp) {
-    // Appears to be newest-first — reverse to oldest-first
     notes.push(
-      `History ordering detected as newest-first (first=${new Date(firstTimestamp).toISOString().slice(0, 10)}, last=${new Date(lastTimestamp).toISOString().slice(0, 10)}). Reversing to oldest-first for analysis.`,
+      `History ordering detected as newest-first. Reversing to oldest-first for analysis.`,
     );
     return { sessions: [...sessions].reverse(), notes };
   }
@@ -169,258 +237,230 @@ function normalizeHistoryOrdering(
 // ── Derivation Functions ─────────────────────────────────────────────────────
 
 /**
- * Derive problem persistence from session history.
+ * Derive problem persistence view from session history.
  *
  * Heuristics:
- * - appears in 1 session → transient
- * - appears in 2 sessions → emerging
- * - appears in 4+ sessions → persistent_pattern
- * - appears over 14+ days → chronic
+ * - 1 session                        → transient
+ * - 2 sessions                       → emerging
+ * - 4+ sessions                      → persistent_pattern
+ * - observed across 14+ days         → chronic
+ *
+ * IMPORTANT: persistence is an OBSERVATION of repeated appearance,
+ * not a biomechanical diagnosis. Downstream layers must not treat it
+ * as proof of a chronic technical flaw.
  */
 function deriveProblemPersistence(
   sessions: AthleteSessionSnapshot[],
   problem: string,
   config: StateEngineConfig,
-): ProblemPersistence {
-  // Count sessions where problem appeared
+): ProblemPersistenceView {
   const sessionsWithProblem = sessions.filter(s =>
-    s.detected_problems.includes(problem)
+    s.detected_problems.includes(problem),
   );
-
   const sessionCount = sessionsWithProblem.length;
+  const notes: string[] = [];
 
-  if (sessionCount === 0) return "transient";
+  if (sessionCount === 0) {
+    return {
+      classification: "transient",
+      sessions_observed: 0,
+      days_span: 0,
+      confidence: "low",
+      notes: ["Problem not observed in window."],
+    };
+  }
 
-  // Calculate days span
   const firstAppearance = sessionsWithProblem[0].timestamp;
   const lastAppearance = sessionsWithProblem[sessionCount - 1].timestamp;
   const daysSpan = (lastAppearance - firstAppearance) / (1000 * 60 * 60 * 24);
 
-  // Classify persistence
+  let classification: ProblemPersistence;
   if (daysSpan >= config.chronic_days_threshold) {
-    return "chronic";
+    classification = "chronic";
+    notes.push(
+      `Observed across ${daysSpan.toFixed(1)} days (≥ ${config.chronic_days_threshold}) → chronic.`,
+    );
+  } else if (sessionCount >= config.persistent_sessions_threshold) {
+    classification = "persistent_pattern";
+    notes.push(
+      `Observed in ${sessionCount} sessions (≥ ${config.persistent_sessions_threshold}) → persistent_pattern.`,
+    );
+  } else if (sessionCount >= 2) {
+    classification = "emerging";
+    notes.push(`Observed in ${sessionCount} sessions → emerging.`);
+  } else {
+    classification = "transient";
+    notes.push(`Observed in 1 session → transient.`);
   }
-  if (sessionCount >= config.persistent_sessions_threshold) {
-    return "persistent_pattern";
-  }
-  if (sessionCount >= 2) {
-    return "emerging";
-  }
-  return "transient";
+
+  // Confidence scales with how many session-level observations support it.
+  const confidence: Confidence =
+    sessionCount >= 4 ? "high" :
+    sessionCount >= 2 ? "medium" : "low";
+
+  return {
+    classification,
+    sessions_observed: sessionCount,
+    days_span: daysSpan,
+    confidence,
+    notes,
+  };
 }
 
 /**
- * Derive performance trend from session history.
+ * Derive performance trend view.
  *
- * Uses:
- * - success_rate trend
- * - readiness trend
- * - fatigue trend (inverse)
- * - RPE trend (inverse)
+ * Uses conservative half-split deltas across:
+ *   - success_rate (primary)
+ *   - readiness    (supporting)
+ *   - fatigue      (inverse: rising fatigue = declining)
+ *   - average_RPE  (inverse: rising RPE = declining)
+ *
+ * Each metric contributes a vote. Trend is decided by majority vote
+ * with success_rate weighted twice. No hidden composite score.
  */
 function derivePerformanceTrend(
   sessions: AthleteSessionSnapshot[],
   config: StateEngineConfig,
-): PerformanceTrend {
-  if (sessions.length < 2) return "stable";
+): PerformanceTrendView {
+  const notes: string[] = [];
+  const n = sessions.length;
 
-  // Use last N sessions for trend
-  const recentSessions = sessions.slice(-config.max_sessions);
+  if (n < 2) {
+    notes.push(`Only ${n} session(s) in window — trend not computable.`);
+    return {
+      trend: "unknown",
+      sessions_analyzed: n,
+      confidence: "low",
+      notes,
+    };
+  }
 
-  // Calculate simple linear trend for each metric
-  const successTrend = calculateTrend(recentSessions.map(s => s.success_rate));
-  // Normalize readiness (supports 0-10 or 0-100 input)
-  const readinessTrend = calculateTrend(recentSessions.map(s => normalizeReadiness(s.readiness)));
-  const fatigueTrend = calculateTrend(recentSessions.map(s => s.fatigue));
-  const rpeTrend = calculateTrend(recentSessions.map(s => s.average_RPE));
+  const successDelta   = halfSplitDelta(sessions.map(s => s.success_rate));
+  const readinessDelta = halfSplitDelta(sessions.map(s => normalizeReadiness(s.readiness)));
+  const fatigueDelta   = halfSplitDelta(sessions.map(s => s.fatigue));
+  const rpeDelta       = halfSplitDelta(sessions.map(s => s.average_RPE));
 
-  // Score: positive = improving, negative = declining
-  let score = 0;
+  // Per-metric vote: +1 improving, -1 declining, 0 stable.
+  const voteFor = (delta: number, threshold: number, inverse: boolean): number => {
+    if (Math.abs(delta) < threshold) return 0;
+    const sign = delta > 0 ? 1 : -1;
+    return inverse ? -sign : sign;
+  };
 
-  // Success rate trend (most important)
-  if (successTrend > config.trend_threshold) score += 2;
-  else if (successTrend < -config.trend_threshold) score -= 2;
+  const successVote   = voteFor(successDelta,   config.success_trend_delta, false);
+  const readinessVote = voteFor(readinessDelta, config.success_trend_delta, false);
+  const fatigueVote   = voteFor(fatigueDelta,   config.fatigue_trend_delta, true);
+  const rpeVote       = voteFor(rpeDelta,       config.rpe_trend_delta,     true);
 
-  // Readiness trend
-  if (readinessTrend > config.trend_threshold) score += 1;
-  else if (readinessTrend < -config.trend_threshold) score -= 1;
+  // success_rate weighted twice (most directly observable performance signal).
+  const totalVote = (successVote * 2) + readinessVote + fatigueVote + rpeVote;
 
-  // Fatigue trend (inverse — decreasing fatigue is good)
-  if (fatigueTrend < -config.trend_threshold) score += 1;
-  else if (fatigueTrend > config.trend_threshold) score -= 1;
+  let trend: PerformanceTrend;
+  if (totalVote >= 2) trend = "improving";
+  else if (totalVote <= -2) trend = "declining";
+  else trend = "stable";
 
-  // RPE trend (inverse — decreasing RPE is good)
-  if (rpeTrend < -1) score += 1;
-  else if (rpeTrend > 1) score -= 1;
+  notes.push(
+    `Success Δ ${successDelta.toFixed(1)} pp; ` +
+    `Readiness Δ ${readinessDelta.toFixed(1)}; ` +
+    `Fatigue Δ ${fatigueDelta.toFixed(1)}; ` +
+    `RPE Δ ${rpeDelta.toFixed(2)}.`,
+  );
+  notes.push(`Vote total ${totalVote} → ${trend}.`);
 
-  // Classify
-  if (score >= 2) return "improving";
-  if (score <= -2) return "declining";
-  return "stable";
+  return {
+    trend,
+    sessions_analyzed: n,
+    confidence: confidenceFromSampleSize(n, config),
+    notes,
+  };
 }
 
 /**
- * Simple linear trend calculation (last value - first value).
- * For more sessions, uses average of pairwise differences.
- */
-function calculateTrend(values: number[]): number {
-  if (values.length < 2) return 0;
-
-  // Simple: last - first
-  return values[values.length - 1] - values[0];
-}
-
-/**
- * Derive fatigue pattern from session history.
+ * Derive fatigue pattern view.
  *
- * Patterns:
- * - acute: single-session spike (high fatigue, was low before)
- * - accumulated: multi-session buildup (fatigue increasing)
- * - systemic: chronic high fatigue (consistently high)
- * - resolved: fatigue decreasing after intervention
+ * Patterns observable from session readings only:
+ *   - acute       → current fatigue spikes above threshold relative to recent baseline
+ *   - accumulated → multi-session upward trend in fatigue
+ *   - stable      → no clear pattern in available data
+ *
+ * Removed (out of scope for evidence available):
+ *   - systemic   (would require physiological / chronic-fatigue inference)
+ *   - resolved   (would require longitudinal recovery tracking we do not have)
  */
 function deriveFatiguePattern(
   sessions: AthleteSessionSnapshot[],
   config: StateEngineConfig,
-): FatiguePattern {
-  if (sessions.length < 2) return "acute";
+): FatiguePatternView {
+  const notes: string[] = [];
+  const n = sessions.length;
 
-  const recentSessions = sessions.slice(-config.max_sessions);
-  const currentFatigue = recentSessions[recentSessions.length - 1].fatigue;
-  const previousFatigue = recentSessions[recentSessions.length - 2]?.fatigue ?? currentFatigue;
-
-  // Calculate fatigue trend
-  const fatigueValues = recentSessions.map(s => s.fatigue);
-  const fatigueTrend = calculateTrend(fatigueValues);
-  const avgFatigue = fatigueValues.reduce((a, b) => a + b, 0) / fatigueValues.length;
-
-  // Classify pattern
-  if (currentFatigue < 50 && fatigueTrend < -5) {
-    return "resolved"; // Fatigue decreasing from higher levels
+  if (n < 2) {
+    notes.push(`Only ${n} session(s) — pattern defaulted to stable.`);
+    return {
+      pattern: "stable",
+      sessions_analyzed: n,
+      confidence: "low",
+      notes,
+    };
   }
 
-  if (avgFatigue > 70) {
-    return "systemic"; // Consistently high fatigue
+  const fatigueValues = sessions.map(s => s.fatigue);
+  const current = fatigueValues[fatigueValues.length - 1];
+  const baseline = mean(fatigueValues.slice(0, -1)); // all but the last
+  const trendDelta = halfSplitDelta(fatigueValues);
+
+  let pattern: FatiguePattern;
+  if (
+    current >= config.acute_fatigue_threshold &&
+    current - baseline >= config.fatigue_trend_delta
+  ) {
+    pattern = "acute";
+    notes.push(
+      `Current fatigue ${current} ≥ ${config.acute_fatigue_threshold}, ` +
+      `baseline ${baseline.toFixed(1)} → acute spike.`,
+    );
+  } else if (trendDelta >= config.fatigue_trend_delta) {
+    pattern = "accumulated";
+    notes.push(
+      `Fatigue Δ ${trendDelta.toFixed(1)} (≥ ${config.fatigue_trend_delta}) → accumulated.`,
+    );
+  } else {
+    pattern = "stable";
+    notes.push(
+      `Fatigue Δ ${trendDelta.toFixed(1)} within ±${config.fatigue_trend_delta} → stable.`,
+    );
   }
 
-  if (fatigueTrend > 10) {
-    return "accumulated"; // Clear upward trend
-  }
-
-  if (currentFatigue > 75 && previousFatigue < 60) {
-    return "acute"; // Sudden spike
-  }
-
-  // Default based on current level
-  if (currentFatigue > 70) return "accumulated";
-  return "acute";
-}
-
-/**
- * Derive intervention response by comparing sessions before and after intervention.
- */
-function deriveInterventionResponse(
-  sessions: AthleteSessionSnapshot[],
-  primaryProblem: string,
-): InterventionResponse | undefined {
-  // Find the session where intervention was applied
-  const interventionIndex = sessions.findIndex(s => s.intervention_applied && s.primary_problem === primaryProblem);
-
-  if (interventionIndex === -1 || interventionIndex >= sessions.length - 1) {
-    return undefined; // No intervention found or no sessions after
-  }
-
-  const preIntervention = sessions[interventionIndex];
-  const postSessions = sessions.slice(interventionIndex + 1);
-
-  if (postSessions.length === 0) return undefined;
-
-  // Check if primary problem still appears
-  const problemStillAppears = postSessions.some(s => s.detected_problems.includes(primaryProblem));
-
-  if (!problemStillAppears) {
-    return "improving"; // Problem resolved
-  }
-
-  // Compare problem frequency before/after
-  const preProblemCount = preIntervention.detected_problems.filter(p => p === primaryProblem).length;
-  const postProblemCount = postSessions.filter(s => s.detected_problems.includes(primaryProblem)).length;
-
-  if (postProblemCount < preProblemCount) return "improving";
-  if (postProblemCount > preProblemCount) return "worsening";
-
-  // Check stability
-  const responses = postSessions.map(s => s.detected_problems.includes(primaryProblem) ? 1 : 0);
-  const variance = responses.some(r => r !== responses[0]);
-
-  if (variance) return "unstable";
-  return "unchanged";
-}
-
-/**
- * Derive movement stability score from problem consistency.
- *
- * 0 = completely different problems every session
- * 100 = identical problems every session
- */
-function deriveMovementStability(sessions: AthleteSessionSnapshot[]): number {
-  if (sessions.length < 2) return 100;
-
-  const recentSessions = sessions.slice(-6); // Last 6 sessions
-
-  // Count unique problems across sessions
-  const allProblems = new Set<string>();
-  recentSessions.forEach(s => s.detected_problems.forEach(p => allProblems.add(p)));
-
-  if (allProblems.size === 0) return 100; // No problems = stable
-
-  // Calculate average problems per session
-  const avgProblemsPerSession = recentSessions.reduce((sum, s) => sum + s.detected_problems.length, 0) / recentSessions.length;
-
-  // Stability = how consistent the problem set is
-  // If same problems appear every session, stability is high
-  // If different problems each session, stability is low
-  const problemFrequency: Record<string, number> = {};
-  recentSessions.forEach(s => {
-    s.detected_problems.forEach(p => {
-      problemFrequency[p] = (problemFrequency[p] ?? 0) + 1;
-    });
-  });
-
-  // Calculate stability: problems that appear in all sessions contribute to high stability
-  const consistentProblems = Object.values(problemFrequency).filter(count => count === recentSessions.length).length;
-  const totalUniqueProblems = Object.keys(problemFrequency).length;
-
-  if (totalUniqueProblems === 0) return 100;
-
-  // Score based on how many problems are consistent
-  const consistencyRatio = consistentProblems / totalUniqueProblems;
-  const sessionConsistency = 1 - (avgProblemsPerSession / allProblems.size);
-
-  return Math.round(Math.max(0, Math.min(100, (consistencyRatio * 60 + sessionConsistency * 40) * 100)));
+  return {
+    pattern,
+    sessions_analyzed: n,
+    confidence: confidenceFromSampleSize(n, config),
+    notes,
+  };
 }
 
 // ── Main State Engine ────────────────────────────────────────────────────────
 
 export interface StateEngineInput {
-  /** Historical session snapshots (ordered by timestamp, oldest first) */
+  /** Historical session snapshots (any order — engine normalizes). */
   sessions: AthleteSessionSnapshot[];
-
   /** Optional configuration overrides */
   config?: Partial<StateEngineConfig>;
-
-  /** Primary problem to track for intervention response */
+  /**
+   * Optional primary problem currently under coaching focus.
+   * If provided, its persistence view is guaranteed to be present in
+   * `persistence_by_problem` even if not observed in the window.
+   */
   primary_problem?: string;
 }
 
 /**
  * Convert session history into derived coaching state.
  *
- * This is a pure function — no side effects, no persistence.
+ * Pure function. No side effects. No persistence. No async.
  * The caller is responsible for managing session history.
- *
- * Note: History ordering is validated and normalized automatically.
- * If timestamps suggest newest-first, the array is reversed with a warning.
  */
 export function deriveCoachingState(input: StateEngineInput): DerivedCoachingState {
   const config: StateEngineConfig = {
@@ -428,44 +468,87 @@ export function deriveCoachingState(input: StateEngineInput): DerivedCoachingSta
     ...input.config,
   };
 
-  // Validate and normalize history ordering (oldest-first expected)
-  const { sessions: normalizedSessions, notes: orderingNotes } = normalizeHistoryOrdering(input.sessions);
+  const data_gaps: string[] = [];
+  const engineNotes: string[] = [];
 
-  // Filter to relevant sessions (last N)
-  const sessions = normalizedSessions.slice(-config.max_sessions);
+  // Order normalization
+  const ordered = normalizeHistoryOrdering(input.sessions);
+  engineNotes.push(...ordered.notes);
 
-  // Collect all unique problems
+  // Window selection (last N)
+  const windowSessions = ordered.sessions.slice(-config.max_sessions);
+
+  if (windowSessions.length === 0) {
+    data_gaps.push("No sessions provided.");
+    return {
+      persistence_by_problem: {},
+      performance: {
+        trend: "unknown",
+        sessions_analyzed: 0,
+        confidence: "low",
+        notes: ["No sessions in window."],
+      },
+      fatigue: {
+        pattern: "stable",
+        sessions_analyzed: 0,
+        confidence: "low",
+        notes: ["No sessions in window."],
+      },
+      meta: {
+        sessions_in_window: 0,
+        overall_confidence: "low",
+        data_gaps,
+        notes: engineNotes,
+      },
+    };
+  }
+
+  // Data gap reporting (drives confidence downgrades downstream)
+  if (!windowSessions.some(s => s.detected_problems.length > 0)) {
+    data_gaps.push("No detected_problems in any session — persistence views inactive.");
+  }
+
+  // Collect all unique problems observed in window
   const allProblems = new Set<string>();
-  sessions.forEach(s => s.detected_problems.forEach(p => allProblems.add(p)));
+  windowSessions.forEach(s =>
+    s.detected_problems.forEach(p => allProblems.add(p)),
+  );
 
-  // Derive persistence for each problem
-  const persistence_by_problem: Record<string, ProblemPersistence> = {};
+  // Always include the primary_problem in the output map even if absent.
+  if (input.primary_problem) {
+    allProblems.add(input.primary_problem);
+  }
+
+  const persistence_by_problem: Record<string, ProblemPersistenceView> = {};
   allProblems.forEach(problem => {
-    persistence_by_problem[problem] = deriveProblemPersistence(sessions, problem, config);
+    persistence_by_problem[problem] = deriveProblemPersistence(
+      windowSessions,
+      problem,
+      config,
+    );
   });
 
-  // Derive performance trend
-  const performance_trend = derivePerformanceTrend(sessions, config);
+  const performance = derivePerformanceTrend(windowSessions, config);
+  const fatigue     = deriveFatiguePattern(windowSessions, config);
 
-  // Derive fatigue pattern
-  const fatigue_pattern = deriveFatiguePattern(sessions, config);
-
-  // Derive intervention response
-  const intervention_response = input.primary_problem
-    ? deriveInterventionResponse(sessions, input.primary_problem)
-    : undefined;
-
-  // Derive movement stability
-  const movement_stability_score = deriveMovementStability(sessions);
+  // Overall confidence = lowest among substantive views.
+  const rank = (c: Confidence) => (c === "high" ? 2 : c === "medium" ? 1 : 0);
+  const candidateConfidences: Confidence[] = [performance.confidence, fatigue.confidence];
+  const overall_confidence = candidateConfidences.reduce(
+    (acc, c) => (rank(c) < rank(acc) ? c : acc),
+    "high" as Confidence,
+  );
 
   return {
     persistence_by_problem,
-    performance_trend,
-    fatigue_pattern,
-    intervention_response,
-    movement_stability_score,
-    // Include ordering notes for debugging (if any were generated)
-    ...(orderingNotes.length > 0 ? { _debug_notes: orderingNotes } : {}),
+    performance,
+    fatigue,
+    meta: {
+      sessions_in_window: windowSessions.length,
+      overall_confidence,
+      data_gaps,
+      notes: engineNotes,
+    },
   };
 }
 
@@ -475,28 +558,25 @@ export function deriveCoachingState(input: StateEngineInput): DerivedCoachingSta
 export function summarizeCoachingState(state: DerivedCoachingState): string {
   const lines: string[] = [];
 
-  // Performance trend
-  lines.push(`Performance trend: ${state.performance_trend}`);
+  lines.push(`Sessions in window: ${state.meta.sessions_in_window} (overall confidence: ${state.meta.overall_confidence})`);
+  lines.push(`Performance trend: ${state.performance.trend} (${state.performance.confidence})`);
+  lines.push(`Fatigue pattern:   ${state.fatigue.pattern} (${state.fatigue.confidence})`);
 
-  // Fatigue pattern
-  lines.push(`Fatigue pattern: ${state.fatigue_pattern}`);
-
-  // Problem persistence
   const problems = Object.entries(state.persistence_by_problem);
   if (problems.length > 0) {
     lines.push(`Problem persistence:`);
-    problems.forEach(([problem, persistence]) => {
-      lines.push(`  - ${problem}: ${persistence}`);
+    problems.forEach(([problem, view]) => {
+      lines.push(
+        `  - ${problem}: ${view.classification} ` +
+        `(${view.sessions_observed} sessions, ${view.days_span.toFixed(1)}d, ${view.confidence})`,
+      );
     });
   }
 
-  // Intervention response
-  if (state.intervention_response) {
-    lines.push(`Intervention response: ${state.intervention_response}`);
+  if (state.meta.data_gaps.length > 0) {
+    lines.push(`Data gaps:`);
+    state.meta.data_gaps.forEach(g => lines.push(`  - ${g}`));
   }
-
-  // Movement stability
-  lines.push(`Movement stability: ${state.movement_stability_score}/100`);
 
   return lines.join("\n");
 }
@@ -504,50 +584,55 @@ export function summarizeCoachingState(state: DerivedCoachingState): string {
 // ── Arbiter Integration Hooks ────────────────────────────────────────────────
 
 /**
- * Convert derived coaching state to arbiter input extensions.
+ * Bridge derived coaching state to the intervention arbiter.
  *
- * This function bridges the state engine output to the intervention arbiter.
+ * The arbiter does NOT receive severity or diagnostic-confidence scores
+ * from the State Engine — those would mix observation with diagnosis.
+ * It receives only what the engine can honestly observe:
+ *
+ *   - persistence classification (transient → chronic) for the primary problem
+ *   - performance trend
+ *   - fatigue pattern
+ *   - per-view confidence
+ *
+ * The arbiter is responsible for combining these observations with its
+ * own domain rules to decide whether intervention is appropriate.
  */
 export interface ArbiterStateExtension {
-  performance_trend?: "improving" | "stable" | "declining";
-  problem_persistence_days?: number;
-  diagnostic_confidence?: number;
-  problem_severity_score?: number;
+  performance_trend?: PerformanceTrend;
+  performance_confidence?: Confidence;
+  fatigue_pattern?: FatiguePattern;
+  fatigue_confidence?: Confidence;
+  primary_problem_persistence?: ProblemPersistence;
+  primary_problem_sessions_observed?: number;
+  primary_problem_days_span?: number;
+  primary_problem_confidence?: Confidence;
+  state_overall_confidence?: Confidence;
+  state_data_gaps?: string[];
 }
 
 export function toArbiterExtension(
   state: DerivedCoachingState,
   primaryProblem?: string,
 ): ArbiterStateExtension {
-  const extension: ArbiterStateExtension = {
-    performance_trend: state.performance_trend,
+  const ext: ArbiterStateExtension = {
+    performance_trend:        state.performance.trend,
+    performance_confidence:   state.performance.confidence,
+    fatigue_pattern:          state.fatigue.pattern,
+    fatigue_confidence:       state.fatigue.confidence,
+    state_overall_confidence: state.meta.overall_confidence,
+    state_data_gaps:          state.meta.data_gaps,
   };
 
-  // Estimate persistence days from persistence classification
-  if (primaryProblem && state.persistence_by_problem[primaryProblem]) {
-    const persistence = state.persistence_by_problem[primaryProblem];
-    switch (persistence) {
-      case "transient":
-        extension.problem_persistence_days = 1;
-        extension.diagnostic_confidence = 30; // Low confidence — might be noise
-        break;
-      case "emerging":
-        extension.problem_persistence_days = 3;
-        extension.diagnostic_confidence = 50;
-        break;
-      case "persistent_pattern":
-        extension.problem_persistence_days = 7;
-        extension.diagnostic_confidence = 70;
-        break;
-      case "chronic":
-        extension.problem_persistence_days = 14;
-        extension.diagnostic_confidence = 90;
-        break;
+  if (primaryProblem) {
+    const view = state.persistence_by_problem[primaryProblem];
+    if (view) {
+      ext.primary_problem_persistence       = view.classification;
+      ext.primary_problem_sessions_observed = view.sessions_observed;
+      ext.primary_problem_days_span         = view.days_span;
+      ext.primary_problem_confidence        = view.confidence;
     }
   }
 
-  // Movement stability as inverse severity
-  extension.problem_severity_score = 100 - state.movement_stability_score;
-
-  return extension;
+  return ext;
 }
