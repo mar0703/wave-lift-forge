@@ -92,6 +92,9 @@ export interface DerivedCoachingState {
 
   /** Confidence placeholder (future integration) */
   confidence_score?: number;
+
+  /** Debug notes (e.g., ordering corrections) — for development use only */
+  _debug_notes?: string[];
 }
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -415,6 +418,9 @@ export interface StateEngineInput {
  *
  * This is a pure function — no side effects, no persistence.
  * The caller is responsible for managing session history.
+ *
+ * Note: History ordering is validated and normalized automatically.
+ * If timestamps suggest newest-first, the array is reversed with a warning.
  */
 export function deriveCoachingState(input: StateEngineInput): DerivedCoachingState {
   const config: StateEngineConfig = {
@@ -422,8 +428,11 @@ export function deriveCoachingState(input: StateEngineInput): DerivedCoachingSta
     ...input.config,
   };
 
+  // Validate and normalize history ordering (oldest-first expected)
+  const { sessions: normalizedSessions, notes: orderingNotes } = normalizeHistoryOrdering(input.sessions);
+
   // Filter to relevant sessions (last N)
-  const sessions = input.sessions.slice(-config.max_sessions);
+  const sessions = normalizedSessions.slice(-config.max_sessions);
 
   // Collect all unique problems
   const allProblems = new Set<string>();
@@ -455,6 +464,8 @@ export function deriveCoachingState(input: StateEngineInput): DerivedCoachingSta
     fatigue_pattern,
     intervention_response,
     movement_stability_score,
+    // Include ordering notes for debugging (if any were generated)
+    ...(orderingNotes.length > 0 ? { _debug_notes: orderingNotes } : {}),
   };
 }
 
