@@ -22,6 +22,7 @@ import {
   interventionArbiter,
   type InterventionDecision as InterventionArbiterDecision,
 } from "./weightlifting/intervention-arbiter";
+import { getExerciseStressProfile, type StressClass } from "./weightlifting/exercise-stress-taxonomy";
 
 // ─────────────────── 1. Central state ───────────────────
 export interface AthleteState {
@@ -368,10 +369,32 @@ export function competitionModule(s: AthleteState): Adjustment | null {
 const CLASSIC_FALLBACKS = ["snatch", "clean_and_jerk", "clean"];
 const SQUAT_PULL_FALLBACKS = ["back_squat", "front_squat", "snatch_pull", "clean_pull"];
 
+/**
+ * Check if a classic exercise's stress class is blocked by arbitration.
+ * Returns true if the exercise should NOT be reinserted due to arbitration blocks.
+ */
+function isClassicBlockedByArbitration(
+  exerciseId: string,
+  blockedStressClasses: ReadonlySet<StressClass>,
+): boolean {
+  if (blockedStressClasses.size === 0) return false;
+  const profile = getExerciseStressProfile(exerciseId);
+  if (!profile) return false;
+  return blockedStressClasses.has(profile.stress_class);
+}
+
+/**
+ * TASK B3: Normalization with arbitration awareness.
+ *
+ * Before reinserting fallback classic lifts, consults arbitration.blocked_stress_classes.
+ * If classic_competition stress class is blocked, classic fallbacks are NOT reinserted.
+ * This closes the normalization leak where blocked stress classes could be bypassed.
+ */
 function normalize(
   exercises: ExerciseBlock[],
   base: WorkoutOutput,
   state: AthleteState,
+  blockedStressClasses: ReadonlySet<StressClass> = new Set(),
 ): { exercises: ExerciseBlock[]; notes: string[] } {
   const notes: string[] = [];
   const seen = new Set<string>();
@@ -384,14 +407,32 @@ function normalize(
 
   const hasClassic = next.some((e) => e.family === "snatch" || e.family === "clean");
   if (!hasClassic) {
-    const fb =
-      base.exercises.find((e) => e.family === "snatch" || e.family === "clean") ||
-      CLASSIC_FALLBACKS.map((id) =>
-        buildBlock(id, state.user_maxes.snatch || 100, 0.75),
-      ).find(Boolean);
-    if (fb) {
-      next.unshift(fb);
-      notes.push("Inserted classic lift to satisfy structure");
+    // TASK B3: Check if classic_competition stress class is blocked by arbitration
+    // If blocked, DO NOT reinsert classic fallbacks — arbitration authority is preserved
+    const classicCompetitionBlocked = blockedStressClasses.has("classic_competition");
+
+    if (classicCompetitionBlocked) {
+      notes.push("Classic lift insertion skipped: classic_competition stress class blocked by arbitration");
+    } else {
+      // Try to find a classic lift from base that isn't blocked
+      const allowedBaseClassic = base.exercises.find((e) => {
+        if (e.family !== "snatch" && e.family !== "clean") return false;
+        return !isClassicBlockedByArbitration(e.exercise_id, blockedStressClasses);
+      });
+
+      // Try fallback candidates that aren't blocked
+      const allowedFallback = CLASSIC_FALLBACKS.find((id) =>
+        !isClassicBlockedByArbitration(id, blockedStressClasses),
+      );
+
+      const fb = allowedBaseClassic || (allowedFallback ? buildBlock(allowedFallback, state.user_maxes.snatch || 100, 0.75) : null);
+
+      if (fb) {
+        next.unshift(fb);
+        notes.push("Inserted classic lift to satisfy structure");
+      } else {
+        notes.push("Classic lift insertion skipped: all classic candidates blocked by arbitration");
+      }
     }
   }
 

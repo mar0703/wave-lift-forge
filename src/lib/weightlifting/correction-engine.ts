@@ -134,8 +134,9 @@ export function getPrimaryProblem(ctx: CorrectionContext): string | undefined {
   if (ctx.forced_problem) return ctx.forced_problem;
   if (!ctx.problems.length) return undefined;
 
-  const ranked = [...ctx.problems].sort(
-    (a, b) =>
+  // Deterministic stabilization: secondary comparator by problem name for equal scores.
+  const ranked = [...ctx.problems].sort((a, b) => {
+    const scoreDiff =
       calculateCorrectionScore({
         problem: b,
         correction_state: ctx.correction_state,
@@ -147,8 +148,11 @@ export function getPrimaryProblem(ctx: CorrectionContext): string | undefined {
         correction_state: ctx.correction_state,
         history: ctx.history,
         exercise_results: ctx.exercise_results,
-      }),
-  );
+      });
+    if (scoreDiff !== 0) return scoreDiff;
+    // Stable tie-breaker: lexical order by problem name (deterministic, semantically neutral)
+    return a.localeCompare(b);
+  });
 
   // Prefer root cause over symptom: if a candidate root cause is itself
   // present in the problem list, focus on that root cause instead.
@@ -175,7 +179,13 @@ export function inferRootCause(
     if (ctx.history?.some((h) => (h?.[c] ?? 0) > 0)) s += 0.1;
     return { cause: c, confidence: s };
   });
-  scored.sort((a, b) => b.confidence - a.confidence);
+  // Deterministic stabilization: secondary comparator by cause name for equal confidence.
+  scored.sort((a, b) => {
+    const confDiff = b.confidence - a.confidence;
+    if (confDiff !== 0) return confDiff;
+    // Stable tie-breaker: lexical order by cause name (deterministic, semantically neutral)
+    return a.cause.localeCompare(b.cause);
+  });
   return scored[0];
 }
 
@@ -362,7 +372,13 @@ export function selectCorrectives(
         b.transfer_score - a.transfer_score || b.final_score - a.final_score,
     );
   } else {
-    viable = viable.sort((a, b) => b.final_score - a.final_score);
+    // Deterministic stabilization: secondary comparator by exercise_id for equal scores.
+    viable = viable.sort((a, b) => {
+      const scoreDiff = b.final_score - a.final_score;
+      if (scoreDiff !== 0) return scoreDiff;
+      // Stable tie-breaker: lexical order by exercise_id (deterministic, semantically neutral)
+      return a.exercise_id.localeCompare(b.exercise_id);
+    });
   }
 
   // Volume cap

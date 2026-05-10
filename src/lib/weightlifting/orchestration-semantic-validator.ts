@@ -8,6 +8,7 @@ import {
   isCompetitionSpecific,
   isRestorationFocused,
 } from "./exercise-stress-taxonomy";
+import { recordUnknownExerciseBypass } from "./orchestrator-telemetry";
 
 export type SemanticValidationMode = "strict" | "warning-only" | "repair";
 
@@ -69,6 +70,13 @@ export interface OrchestrationSemanticValidationInput {
   exercises: ExerciseBlock[];
   mode?: SemanticValidationMode;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REPAIR ITERATION GUARD — Phase B Stabilization
+// Prevents infinite repair recursion. If repair fails after max iterations,
+// emits telemetry warning and returns safest legal fallback.
+// ─────────────────────────────────────────────────────────────────────────────
+const MAX_REPAIR_ITERATIONS = 3;
 
 const CLASSIC_CANDIDATES = ["snatch", "clean_and_jerk", "clean", "jerk"];
 const LOWER_BODY_CANDIDATES = ["back_squat", "front_squat", "clean_pull", "snatch_pull"];
@@ -601,29 +609,199 @@ export function validateOrchestrationSemantics(
     });
   }
 
-  const repaired = mode === "repair"
-    ? repairWorkout(exercises, issues, runtime, finalContext)
-    : { workout: exercises, repairs: [] };
+  // ───────────────────────────────────────────────────────────────────────────
+  // TASK B1 & B2: Bounded repair iteration with post-repair revalidation
+  // ───────────────────────────────────────────────────────────────────────────
+  let repairedWorkout: ExerciseBlock[] = exercises;
+  const allRepairs: SemanticRepairIntervention[] = [];
+  let repairExhausted = false;
 
-  const remainingErrors = issues.filter((issue) => issue.severity === "error");
-  const confidencePenalty = issues.reduce(
+  if (mode === "repair") {
+    let currentExercises = exercises;
+    let currentIssues = issues;
+
+    for (let iteration = 0; iteration < MAX_REPAIR_ITERATIONS; iteration++) {
+      const repairResult = repairWorkout(currentExercises, currentIssues, runtime, finalContext);
+      repairedWorkout = repairResult.workout;
+      allRepairs.push(...repairResult.repairs);
+
+      // ─────────────────────────────────────────────────────────────────────
+      // TASK B2: POST-REPAIR REVALIDATION
+      // Re-validate the repaired workout. If it still fails critical checks,
+      // attempt another iteration (up to MAX_REPAIR_ITERATIONS).
+      // ─────────────────────────────────────────────────────────────────────
+      const revalidationIssues: SemanticValidationIssue[] = [];
+
+      // Check: empty pipeline
+      if (!repairedWorkout.length) {
+        addIssue(revalidationIssues, {
+          classification: "empty_pipeline",
+          invariant: "workout_non_empty",
+          severity: "error",
+          message: "Repaired workout is still empty after iteration " + (iteration + 1) + ".",
+          dominated_by: runtime.arbitration.dominant_sources,
+        });
+      }
+
+      // Check: specificity collapse
+      const highSpec = isHighSpecificity(runtime, finalContext);
+      if (highSpec && !hasClassicExposure(repairedWorkout)) {
+        const allowedClassics = CLASSIC_CANDIDATES.filter((id) =>
+          isAllowed(id, runtime, finalContext),
+        );
+        addIssue(revalidationIssues, {
+          classification: "specificity_collapse",
+          invariant: "high_specificity_preserves_classic_lifts",
+          severity: allowedClassics.length ? "error" : "warning",
+          message: "Repaired workout still lacks classic lift exposure (iteration " + (iteration + 1) + ").",
+          blocked_by: allowedClassics.length
+            ? []
+            : CLASSIC_CANDIDATES.flatMap((id) => blockingReasons(id, runtime, finalContext)),
+          dominated_by: runtime.arbitration.dominant_sources,
+        });
+      }
+
+      // Check: blocked stress classes still present
+      const blockedSC = blockedStressClasses(runtime);
+      if (blockedSC.size > 0) {
+        const violatingExercises = repairedWorkout.filter((ex) => {
+          const profile = getExerciseStressProfile(ex.exercise_id);
+          return profile && blockedSC.has(profile.stress_class);
+        });
+        if (violatingExercises.length > 0) {
+          addIssue(revalidationIssues, {
+            classification: "arbitration_conflict",
+            invariant: "arbitration_blocks_respected",
+            severity: "error",
+            message: "Repaired workout still contains exercises with blocked stress classes.",
+            exercise_id: violatingExercises.map((ex) => ex.exercise_id).join(", "),
+            dominated_by: runtime.arbitration.dominant_sources,
+          });
+        }
+      }
+
+      // Check: complexity ceiling violations
+      const complexityViolations = repairedWorkout.filter((ex) => {
+        const profile = getExerciseStressProfile(ex.exercise_id);
+        return profile && profile.complexity > runtime.arbitration.final_complexity_ceiling;
+      });
+      if (complexityViolations.length > 0) {
+        addIssue(revalidationIssues, {
+          classification: "arbitration_conflict",
+          invariant: "complexity_ceiling_respected",
+          severity: "error",
+          message: "Repaired workout still contains exercises exceeding complexity ceiling.",
+          dominated_by: runtime.arbitration.dominant_sources,
+        });
+      }
+
+      const revalidationErrors = revalidationIssues.filter((i) => i.severity === "error");
+
+      if (revalidationErrors.length === 0) {
+        // Repair succeeded — repaired workout passes revalidation
+        break;
+      }
+
+      if (iteration >= MAX_REPAIR_ITERATIONS - 1) {
+        // Max iterations reached — emit telemetry and use safest fallback
+        repairExhausted = true;
+        recordUnknownExerciseBypass({
+          exercise_id: "REPAIR_EXHAUSTED",
+          caller: "validateOrchestrationSemantics",
+          validation_mode: mode,
+          recorded_at: Date.now(),
+          constraint_snapshot: {
+            complexity_max: runtime.arbitration.final_complexity_ceiling,
+            intensity_pct: runtime.arbitration.final_intensity_ceiling,
+            volume_multiplier: runtime.arbitration.final_volume_multiplier,
+            blocked_exercises_count: runtime.arbitration.blocked_exercises.size,
+          },
+          arbitration_snapshot: {
+            final_complexity_ceiling: runtime.arbitration.final_complexity_ceiling,
+            final_intensity_ceiling: runtime.arbitration.final_intensity_ceiling,
+            final_cns_load_ceiling: runtime.arbitration.final_cns_load_ceiling,
+            blocked_stress_classes: Array.from(runtime.arbitration.blocked_stress_classes),
+            blocked_exercises_count: runtime.arbitration.blocked_exercises.size,
+            dominant_sources: runtime.arbitration.dominant_sources,
+          },
+        });
+        notes.push(
+          `[semantic repair] ⚠ MAX_REPAIR_ITERATIONS (${MAX_REPAIR_ITERATIONS}) reached. ` +
+            "Falling back to safest constrained workout.",
+        );
+
+        // Build safest legal fallback: use restoration candidates only, at low intensity
+        const safeFallback = isRecoveryOnly(finalContext)
+          ? RESTORATION_CANDIDATES
+          : [...RESTORATION_CANDIDATES, ...LOWER_BODY_CANDIDATES];
+        const { block: fallbackBlock, skipped: fallbackSkipped } = firstAllowedCandidate(
+          safeFallback,
+          runtime,
+          finalContext,
+          new Set(),
+        );
+        if (fallbackBlock) {
+          repairedWorkout = [fallbackBlock];
+          allRepairs.push({
+            strategy: "max_iteration_safety_fallback",
+            reason: "Repair exhausted after " + MAX_REPAIR_ITERATIONS + " iterations. Using safest legal fallback.",
+            added_exercise_ids: [fallbackBlock.exercise_id],
+            removed_exercise_ids: [],
+            skipped_exercise_ids: fallbackSkipped,
+            authority_preserved: "safety",
+            notes: ["Safest legal fallback activated after repair exhaustion."],
+          });
+        } else {
+          // No legal fallback found — return filtered exercises that pass arbitration
+          repairedWorkout = uniqueExercises(exercises).filter((exercise) =>
+            isAllowed(exercise.exercise_id, runtime, finalContext),
+          );
+          allRepairs.push({
+            strategy: "max_iteration_arbitration_only_fallback",
+            reason: "Repair exhausted and no safe fallback available. Returning arbitration-filtered exercises only.",
+            added_exercise_ids: [],
+            removed_exercise_ids: [],
+            skipped_exercise_ids: safeFallback,
+            authority_preserved: "arbitration",
+            notes: ["No legal fallback exists. Returning only exercises that pass arbitration."],
+          });
+        }
+      } else {
+        // Prepare for next iteration
+        currentExercises = repairedWorkout;
+        currentIssues = revalidationIssues;
+      }
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Final confidence calculation (using all issues including revalidation)
+  // ───────────────────────────────────────────────────────────────────────────
+  const allIssues = repairExhausted
+    ? [...issues]
+    : issues;
+  const remainingErrors = allIssues.filter((issue) => issue.severity === "error");
+  const confidencePenalty = allIssues.reduce(
     (sum, issue) => sum + (issue.severity === "error" ? 18 : 8),
     0,
   );
-  const repairCredit = Math.min(20, repaired.repairs.filter((repair) => repair.added_exercise_ids.length > 0).length * 6);
-  const confidence = Math.max(0, Math.min(100, 100 - confidencePenalty + repairCredit));
+  const repairCredit = Math.min(
+    20,
+    allRepairs.filter((repair) => repair.added_exercise_ids.length > 0).length * 6,
+  );
+  const confidence = repairExhausted
+    ? Math.max(0, Math.min(30, 100 - confidencePenalty + repairCredit))
+    : Math.max(0, Math.min(100, 100 - confidencePenalty + repairCredit));
 
-  for (const repair of repaired.repairs) {
-    notes.push(
-      `[semantic repair] ${repair.strategy}: ${repair.notes.join(" ")}`,
-    );
+  for (const repair of allRepairs) {
+    notes.push(`[semantic repair] ${repair.strategy}: ${repair.notes.join(" ")}`);
   }
 
   const debug: OrchestrationSemanticDebug = {
-    failed_invariants: issues.map((issue) => issue.invariant),
+    failed_invariants: allIssues.map((issue) => issue.invariant),
     constraints_causing_collapse: Array.from(new Set(constraintsCausingCollapse)),
     removed_exercise_ids: Array.from(new Set(removedExerciseIds)),
-    repair_path_activated: repaired.repairs.map((repair) => repair.strategy),
+    repair_path_activated: allRepairs.map((repair) => repair.strategy),
     dominating_arbitration_rules: Array.from(new Set(dominantRules)),
     final_semantic_confidence: confidence,
   };
@@ -640,10 +818,10 @@ export function validateOrchestrationSemantics(
     valid: remainingErrors.length === 0,
     mode,
     confidence,
-    issues,
-    repairs: repaired.repairs,
+    issues: allIssues,
+    repairs: allRepairs,
     debug,
-    workout: repaired.workout,
+    workout: repairedWorkout,
     notes,
   };
 }

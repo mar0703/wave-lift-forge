@@ -327,9 +327,15 @@ function arbitrateRestorationBias(signals: ConstraintSignal[], notes: string[]):
   );
 
   if (finalBias > 0) {
+    // Deterministic stabilization: secondary comparator by source for equal restoration_bias.
     const strongest = signals
       .filter(s => (s.restoration_bias || 0) > 0)
-      .sort((a, b) => (b.restoration_bias || 0) - (a.restoration_bias || 0))[0];
+      .sort((a, b) => {
+        const biasDiff = (b.restoration_bias || 0) - (a.restoration_bias || 0);
+        if (biasDiff !== 0) return biasDiff;
+        // Stable tie-breaker: lexical order by source (deterministic, semantically neutral)
+        return a.source.localeCompare(b.source);
+      })[0];
 
     notes.push(
       `Restoration bias: ${(finalBias * 100).toFixed(0)}% — driven by ${strongest.source}` +

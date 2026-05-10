@@ -593,8 +593,14 @@ export function selectDailyPriority(
   ctx: DailyPriorityContext,
 ): DailyPriorityDecision {
   // Coach override short-circuits everything except the candidate report.
+  // Deterministic stabilization: secondary comparator by priority id for equal scores.
   const candidates = ALL_PRIORITIES.map((id) => scoreCandidate(id, ctx)).sort(
-    (a, b) => b.score - a.score,
+    (a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) return scoreDiff;
+      // Stable tie-breaker: lexical order by id (deterministic, semantically neutral)
+      return a.id.localeCompare(b.id);
+    },
   );
 
   // Hard safety: blocked priorities are removed from the candidate pool.

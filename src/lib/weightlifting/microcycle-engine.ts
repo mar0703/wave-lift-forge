@@ -501,7 +501,13 @@ export function calculateTrainingDebt(
     }
   }
 
-  return debts.sort((a, b) => b.debt_score - a.debt_score);
+  // Deterministic stabilization: secondary comparator by priority id for equal debt scores.
+  return debts.sort((a, b) => {
+    const scoreDiff = b.debt_score - a.debt_score;
+    if (scoreDiff !== 0) return scoreDiff;
+    // Stable tie-breaker: lexical order by priority id (deterministic, semantically neutral)
+    return a.priority.localeCompare(b.priority);
+  });
 }
 
 // ────────────────────────────────────────────────────────────
