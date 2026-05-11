@@ -6,7 +6,8 @@
       "Bash(git stash *)",
       "Bash(ls .git/refs/stash)",
       "Bash(npx tsx *)",
-      "Bash(echo \"---tsc exit $?\")"
+      "Bash(echo \"---tsc exit $?\")",
+      "Bash(pwsh -Command \"Get-Item -Path src/integrations -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName\")"
     ]
   }
 }

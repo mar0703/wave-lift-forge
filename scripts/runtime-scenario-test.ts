@@ -2043,6 +2043,532 @@ const PHASE_D_COMPARATOR_SURFACES: readonly ComparatorSurfaceEntry[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PHASE D.3 — SEMANTIC SURFACE REGISTRY (taxonomy + static registry)
+//
+// Static observational registry of replay-visible and replay-relevant semantic
+// surfaces. This phase classifies semantic surfaces, replay visibility,
+// stabilization intent, insertion sensitivity, retention persistence, and
+// authority sensitivity WITHOUT altering runtime behavior.
+//
+// Doctrine compliance:
+//   - observational only: never feeds back into runtime decisions
+//   - append-only: registry data is static, declared once, never mutated
+//   - non-governing: registry is documentation surfaced as data
+//   - bounded: 8 explicit surfaces; no dynamic ontology, no auto-inference
+//
+// Severity ordering (highest-severity class wins):
+//   S0 < S1 < S2 < S3 < S4 < S5
+//
+// A surface may belong to ONLY ONE highest-severity class. Replay visibility
+// is orthogonal to semantic class — do NOT conflate replay visibility with
+// semantic influence.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type SemanticSurfaceClass =
+  | "S0_unobservable_semantic_surface"
+  | "S1_replay_stable_surface"
+  | "S2_deterministically_retained_surface"
+  | "S3_insertion_dependent_surface"
+  | "S4_semantically_shaping_surface"
+  | "S5_authority_affecting_surface";
+
+type ReplayVisibilityClass =
+  | "RV0_not_replay_visible"
+  | "RV1_indirectly_replay_visible"
+  | "RV2_directly_replay_visible";
+
+type StabilizationIntentClass =
+  | "I0_legacy_unstabilized"
+  | "I1_intentionally_stabilized"
+  | "I2_currently_preserved_insertion_semantics";
+
+type SemanticSurfaceInsertionDependency =
+  | "removed"
+  | "persists"
+  | "unverifiable";
+
+type SemanticSurfaceRetentionPersistence =
+  | "none_observed"
+  | "stable_retention_observed"
+  | "unverifiable";
+
+type SemanticSurfaceAuthoritySensitivity =
+  | "none_observed"
+  | "potential"
+  | "observed";
+
+type SemanticSurfaceRegistryEntry = {
+  readonly surface: string;
+  readonly semantic_class: SemanticSurfaceClass;
+  readonly replay_visibility: ReplayVisibilityClass;
+  readonly stabilization_intent: StabilizationIntentClass;
+  readonly replay_certified: boolean;
+  readonly forced_tie_certified: boolean;
+  readonly insertion_dependency: SemanticSurfaceInsertionDependency;
+  readonly retention_persistence: SemanticSurfaceRetentionPersistence;
+  readonly authority_sensitivity: SemanticSurfaceAuthoritySensitivity;
+  readonly notes: readonly string[];
+};
+
+const SEMANTIC_SURFACE_REGISTRY: readonly SemanticSurfaceRegistryEntry[] = [
+  {
+    surface: "selectDailyPriority",
+    semantic_class: "S4_semantically_shaping_surface",
+    replay_visibility: "RV1_indirectly_replay_visible",
+    stabilization_intent: "I1_intentionally_stabilized",
+    replay_certified: true,
+    forced_tie_certified: true,
+    insertion_dependency: "removed",
+    retention_persistence: "stable_retention_observed",
+    authority_sensitivity: "potential",
+    notes: [
+      "Stabilized in Phase D with id.localeCompare secondary comparator",
+      "Selected priority id is not in constrained_exercises; surfaces indirectly via prioritizeByDailyPriority and PRIORITY_DEFINITIONS",
+      "Under ties: lexically smallest priority id retained consistently",
+      "Could shape emitted outputs through downstream prioritization when ties exist; no authority drift observed",
+    ],
+  },
+  {
+    surface: "calculateTrainingDebt",
+    semantic_class: "S4_semantically_shaping_surface",
+    replay_visibility: "RV1_indirectly_replay_visible",
+    stabilization_intent: "I1_intentionally_stabilized",
+    replay_certified: true,
+    forced_tie_certified: true,
+    insertion_dependency: "removed",
+    retention_persistence: "stable_retention_observed",
+    authority_sensitivity: "potential",
+    notes: [
+      "Stabilized with priority.localeCompare secondary comparator",
+      "training_debts ordering not exposed; only downstream biased_priorities effect reaches constrained_exercises",
+      "Under ties: equal-score debts deterministically order lexically by priority id",
+      "Could shape imbalance warnings and biased priority ordering when ties exist; no authority drift observed",
+    ],
+  },
+  {
+    surface: "getPrimaryProblem",
+    semantic_class: "S4_semantically_shaping_surface",
+    replay_visibility: "RV1_indirectly_replay_visible",
+    stabilization_intent: "I1_intentionally_stabilized",
+    replay_certified: true,
+    forced_tie_certified: true,
+    insertion_dependency: "removed",
+    retention_persistence: "stable_retention_observed",
+    authority_sensitivity: "potential",
+    notes: [
+      "correction-engine.ts variant stabilized with problem.localeCompare",
+      "Drives primary_problem selection (subject to root-cause override) and decideCorrection strategy",
+      "diagnostics.getPrimaryProblem (orchestrator-direct path) is a different function and NOT touched by Phase D",
+      "Tied problems traverse decideCorrection → adaptation modules → arbitration → normalization before reaching constrained_exercises",
+    ],
+  },
+  {
+    surface: "inferRootCause",
+    semantic_class: "S2_deterministically_retained_surface",
+    replay_visibility: "RV1_indirectly_replay_visible",
+    stabilization_intent: "I1_intentionally_stabilized",
+    replay_certified: true,
+    forced_tie_certified: true,
+    insertion_dependency: "removed",
+    retention_persistence: "stable_retention_observed",
+    authority_sensitivity: "none_observed",
+    notes: [
+      "Stabilized with cause.localeCompare secondary comparator",
+      "Cause field surfaces only via decideCorrection.notes string in current pipeline",
+      "No downstream selection currently conditions on the cause string",
+      "Future consumers would see a deterministically pinned cause",
+    ],
+  },
+  {
+    surface: "selectCorrectives_default",
+    semantic_class: "S4_semantically_shaping_surface",
+    replay_visibility: "RV1_indirectly_replay_visible",
+    stabilization_intent: "I1_intentionally_stabilized",
+    replay_certified: true,
+    forced_tie_certified: true,
+    insertion_dependency: "removed",
+    retention_persistence: "stable_retention_observed",
+    authority_sensitivity: "potential",
+    notes: [
+      "Default branch stabilized with exercise_id.localeCompare secondary comparator",
+      "Volume cap (1-2 picks) + tie-break jointly determine retained candidates",
+      "Under cap pressure: lexically smaller exercise_ids retained, lexically larger rejected",
+      "Reaches constrained_exercises only after coach-engine normalization, arbitration filtering, semantic repair, and stress-class blocking",
+      "Authority sensitivity is 'potential' (not 'observed'): no authority drift detected; cap + retention persistence could shape candidate set delivered to downstream authority layers",
+    ],
+  },
+  {
+    surface: "selectCorrectives_preferLowComplexity",
+    semantic_class: "S3_insertion_dependent_surface",
+    replay_visibility: "RV1_indirectly_replay_visible",
+    stabilization_intent: "I2_currently_preserved_insertion_semantics",
+    replay_certified: true,
+    forced_tie_certified: false,
+    insertion_dependency: "persists",
+    retention_persistence: "unverifiable",
+    authority_sensitivity: "potential",
+    notes: [
+      "Branch NOT stabilized in Phase D — no tertiary comparator beyond complexity_score then final_score",
+      "If complexity_score AND final_score both tie, insertion order determines outcome",
+      "Cap retention depends on insertion order under full secondary ties",
+      "Currently preserved insertion semantics — chronology may encode runtime semantics by design",
+      "Authority sensitivity is 'potential' (not 'observed'): no authority drift detected; insertion order could shape candidate set delivered to downstream authority layers",
+    ],
+  },
+  {
+    surface: "selectCorrectives_peakIntegration",
+    semantic_class: "S3_insertion_dependent_surface",
+    replay_visibility: "RV1_indirectly_replay_visible",
+    stabilization_intent: "I2_currently_preserved_insertion_semantics",
+    replay_certified: true,
+    forced_tie_certified: false,
+    insertion_dependency: "persists",
+    retention_persistence: "unverifiable",
+    authority_sensitivity: "potential",
+    notes: [
+      "Branch NOT stabilized in Phase D — no tertiary comparator beyond transfer_score then final_score",
+      "If transfer_score AND final_score both tie, insertion order determines outcome",
+      "Peak phase cap = 1 makes this branch especially sensitive to insertion order",
+      "Currently preserved insertion semantics — chronology may encode runtime semantics by design",
+      "Authority sensitivity is 'potential' (not 'observed'): no authority drift detected; insertion order could shape candidate set delivered to downstream authority layers",
+    ],
+  },
+  {
+    surface: "arbitrateRestorationBias",
+    semantic_class: "S1_replay_stable_surface",
+    replay_visibility: "RV0_not_replay_visible",
+    stabilization_intent: "I1_intentionally_stabilized",
+    replay_certified: true,
+    forced_tie_certified: true,
+    insertion_dependency: "removed",
+    retention_persistence: "none_observed",
+    authority_sensitivity: "none_observed",
+    notes: [
+      "Stabilized with source.localeCompare secondary comparator",
+      "finalBias return value computed via Math.max — independent of sort result",
+      "Sort result consumed ONLY to build human-readable note string",
+      "strongest.source label appears only in notes[]; not in constrained_exercises, repairs, invariants, or telemetry opcodes",
+      "Pure cosmetic/explanatory stabilization with no emitted-output shaping",
+    ],
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE D.3 — REGISTRY OBSERVABILITY GAPS (static)
+//
+// Bounded enumeration of observability limitations across the registered
+// surfaces. Reporting only — does NOT fabricate observability and does NOT
+// govern any decision.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RegistryObservabilityGapClass =
+  | "comparator_not_replay_visible"
+  | "downstream_effect_unobservable"
+  | "branch_not_exercised"
+  | "insertion_effect_unobservable"
+  | "cap_effect_unobservable"
+  | "authority_effect_unobservable";
+
+type RegistryObservabilityGap = {
+  readonly surface: string;
+  readonly gap_type: RegistryObservabilityGapClass;
+  readonly reason: string;
+};
+
+const SEMANTIC_SURFACE_OBSERVABILITY_GAPS: readonly RegistryObservabilityGap[] = [
+  {
+    surface: "selectDailyPriority",
+    gap_type: "comparator_not_replay_visible",
+    reason: "Selected daily priority id is not in constrained_exercises; harness reads only exercise-level outputs.",
+  },
+  {
+    surface: "calculateTrainingDebt",
+    gap_type: "downstream_effect_unobservable",
+    reason: "Debt ordering affects biased_priorities indirectly; the direct ordering surface is not exposed by orchestrateAndPrepareWorkout.",
+  },
+  {
+    surface: "getPrimaryProblem",
+    gap_type: "comparator_not_replay_visible",
+    reason: "Primary problem selection is internal to correction decision; not exposed in pipeline outputs.",
+  },
+  {
+    surface: "inferRootCause",
+    gap_type: "downstream_effect_unobservable",
+    reason: "Root cause surfaces only in decideCorrection.notes string; downstream correction effects are filtered through multiple layers.",
+  },
+  {
+    surface: "selectCorrectives_default",
+    gap_type: "branch_not_exercised",
+    reason: "Harness scenarios do not isolate the default-branch tie surface; correctives reach constrained_exercises only after normalization, arbitration, and stress-class blocking.",
+  },
+  {
+    surface: "selectCorrectives_default",
+    gap_type: "cap_effect_unobservable",
+    reason: "Cap + tie-break interaction is not isolated by harness scenarios; only post-arbitration emitted set is observable.",
+  },
+  {
+    surface: "selectCorrectives_preferLowComplexity",
+    gap_type: "branch_not_exercised",
+    reason: "Harness scenarios do not exercise the preferLowComplexity branch with tied candidates.",
+  },
+  {
+    surface: "selectCorrectives_preferLowComplexity",
+    gap_type: "insertion_effect_unobservable",
+    reason: "Full secondary ties under this branch are insertion-order dependent; the harness cannot inject controlled insertion chronology into internal candidate lists.",
+  },
+  {
+    surface: "selectCorrectives_peakIntegration",
+    gap_type: "branch_not_exercised",
+    reason: "Harness scenarios do not exercise the peak/integration branch with tied candidates.",
+  },
+  {
+    surface: "selectCorrectives_peakIntegration",
+    gap_type: "insertion_effect_unobservable",
+    reason: "Full secondary ties under this branch are insertion-order dependent; the harness cannot inject controlled insertion chronology into internal candidate lists.",
+  },
+  {
+    surface: "arbitrateRestorationBias",
+    gap_type: "comparator_not_replay_visible",
+    reason: "strongest.source label appears only in notes[] strings; not in constrained_exercises, repairs, invariants, or telemetry opcodes.",
+  },
+  {
+    surface: "registry_authority_surface",
+    gap_type: "authority_effect_unobservable",
+    reason: "Authority sensitivity classifications use 'potential' where retention/insertion could shape candidate sets delivered to authority layers; this distinction is conservative — no authority drift was observed in any certified scenario.",
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE D.3 — SEMANTIC SURFACE REGISTRY REPORTER
+//
+// Pure projection over SEMANTIC_SURFACE_REGISTRY and
+// SEMANTIC_SURFACE_OBSERVABILITY_GAPS. No runtime decision reads from these
+// outputs. The reporter must NEVER mutate orchestration, repair, arbitration,
+// fallback, or validator behavior.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function printSemanticSurfaceRegistryReport(): void {
+  console.log("\n" + "═".repeat(60));
+  console.log("=== SEMANTIC SURFACE REGISTRY");
+  console.log("═".repeat(60));
+
+  for (const entry of SEMANTIC_SURFACE_REGISTRY) {
+    console.log(`\n  surface:                ${entry.surface}`);
+    console.log(`    semantic_class:        ${entry.semantic_class}`);
+    console.log(`    replay_visibility:     ${entry.replay_visibility}`);
+    console.log(`    stabilization_intent:  ${entry.stabilization_intent}`);
+    console.log(`    replay_certified:      ${entry.replay_certified ? "yes" : "no"}`);
+    console.log(`    forced_tie_certified:  ${entry.forced_tie_certified ? "yes" : "no"}`);
+    console.log(`    insertion_dependency:  ${entry.insertion_dependency}`);
+    console.log(`    retention_persistence: ${entry.retention_persistence}`);
+    console.log(`    authority_sensitivity: ${entry.authority_sensitivity}`);
+    if (entry.notes.length > 0) {
+      console.log("    notes:");
+      for (const note of entry.notes) {
+        console.log(`      - ${note}`);
+      }
+    }
+  }
+
+  // ── SEMANTIC TOPOLOGY MAP ──────────────────────────────────────────────
+  console.log("\n" + "═".repeat(60));
+  console.log("=== SEMANTIC TOPOLOGY MAP");
+  console.log("═".repeat(60));
+
+  const replayStableSurfaces = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) => e.semantic_class === "S1_replay_stable_surface",
+  );
+  const insertionSensitiveSurfaces = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) => e.insertion_dependency === "persists",
+  );
+  const retentionPersistenceSurfaces = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) => e.retention_persistence === "stable_retention_observed",
+  );
+  const authoritySensitiveSurfaces = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) => e.authority_sensitivity !== "none_observed",
+  );
+  const unobservableSurfaces = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) =>
+      e.replay_visibility === "RV0_not_replay_visible" ||
+      e.semantic_class === "S0_unobservable_semantic_surface",
+  );
+
+  console.log(`\n  Total registered surfaces:     ${SEMANTIC_SURFACE_REGISTRY.length}`);
+  console.log(`  replay-stable surfaces:        ${replayStableSurfaces.length}`);
+  console.log(`  insertion-sensitive surfaces:  ${insertionSensitiveSurfaces.length}`);
+  console.log(`  retention-persistence surfaces:${retentionPersistenceSurfaces.length}`);
+  console.log(`  authority-sensitive surfaces:  ${authoritySensitiveSurfaces.length}`);
+  console.log(`  unobservable surfaces:         ${unobservableSurfaces.length}`);
+
+  const semanticClassCounts: Record<SemanticSurfaceClass, number> = {
+    S0_unobservable_semantic_surface: 0,
+    S1_replay_stable_surface: 0,
+    S2_deterministically_retained_surface: 0,
+    S3_insertion_dependent_surface: 0,
+    S4_semantically_shaping_surface: 0,
+    S5_authority_affecting_surface: 0,
+  };
+  for (const e of SEMANTIC_SURFACE_REGISTRY) {
+    semanticClassCounts[e.semantic_class]++;
+  }
+  console.log("\n  Semantic class distribution:");
+  for (const [cls, count] of Object.entries(semanticClassCounts)) {
+    console.log(`    ${cls}: ${count}`);
+  }
+
+  const replayVisibilityCounts: Record<ReplayVisibilityClass, number> = {
+    RV0_not_replay_visible: 0,
+    RV1_indirectly_replay_visible: 0,
+    RV2_directly_replay_visible: 0,
+  };
+  for (const e of SEMANTIC_SURFACE_REGISTRY) {
+    replayVisibilityCounts[e.replay_visibility]++;
+  }
+  console.log("\n  Replay visibility distribution:");
+  for (const [cls, count] of Object.entries(replayVisibilityCounts)) {
+    console.log(`    ${cls}: ${count}`);
+  }
+
+  const stabilizationIntentCounts: Record<StabilizationIntentClass, number> = {
+    I0_legacy_unstabilized: 0,
+    I1_intentionally_stabilized: 0,
+    I2_currently_preserved_insertion_semantics: 0,
+  };
+  for (const e of SEMANTIC_SURFACE_REGISTRY) {
+    stabilizationIntentCounts[e.stabilization_intent]++;
+  }
+  console.log("\n  Stabilization intent distribution:");
+  for (const [cls, count] of Object.entries(stabilizationIntentCounts)) {
+    console.log(`    ${cls}: ${count}`);
+  }
+
+  // ── INSERTION SEMANTICS ────────────────────────────────────────────────
+  console.log("\n" + "═".repeat(60));
+  console.log("=== INSERTION SEMANTICS");
+  console.log("═".repeat(60));
+
+  const removedInsertion = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) => e.insertion_dependency === "removed",
+  );
+  const persistsInsertion = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) => e.insertion_dependency === "persists",
+  );
+  const unverifiableInsertion = SEMANTIC_SURFACE_REGISTRY.filter(
+    (e) => e.insertion_dependency === "unverifiable",
+  );
+
+  console.log(`\n  removed insertion dependency:     ${removedInsertion.length}`);
+  for (const e of removedInsertion) {
+    console.log(`    - ${e.surface} (intent: ${e.stabilization_intent})`);
+  }
+  console.log(`\n  preserved insertion semantics:    ${persistsInsertion.length}`);
+  for (const e of persistsInsertion) {
+    console.log(`    - ${e.surface} (intent: ${e.stabilization_intent})`);
+    console.log(`        replay_visible: ${e.replay_visibility}`);
+    console.log(`        currently_preserved: ${e.stabilization_intent === "I2_currently_preserved_insertion_semantics" ? "yes" : "no"}`);
+    console.log(`        affects emitted outputs: ${e.semantic_class === "S3_insertion_dependent_surface" || e.semantic_class === "S4_semantically_shaping_surface" ? "potentially" : "not observed"}`);
+  }
+  console.log(`\n  unresolved insertion sensitivity: ${unverifiableInsertion.length}`);
+  for (const e of unverifiableInsertion) {
+    console.log(`    - ${e.surface}`);
+  }
+
+  // ── CAP PRESSURE SURFACES ──────────────────────────────────────────────
+  console.log("\n" + "═".repeat(60));
+  console.log("=== CAP PRESSURE SURFACES");
+  console.log("═".repeat(60));
+
+  const correctiveSurfaces = SEMANTIC_SURFACE_REGISTRY.filter((e) =>
+    e.surface.startsWith("selectCorrectives_"),
+  );
+  const retentionUnderCap = correctiveSurfaces.filter(
+    (e) => e.retention_persistence === "stable_retention_observed",
+  );
+  const authoritySensitiveCap = correctiveSurfaces.filter(
+    (e) => e.authority_sensitivity !== "none_observed",
+  );
+  const unverifiableCap = correctiveSurfaces.filter(
+    (e) =>
+      e.retention_persistence === "unverifiable" ||
+      e.insertion_dependency === "unverifiable",
+  );
+
+  console.log(`\n  Cap surfaces classified:                 ${correctiveSurfaces.length}`);
+  console.log(`  retention persistence under caps:        ${retentionUnderCap.length}`);
+  for (const e of retentionUnderCap) {
+    console.log(`    - ${e.surface}: cap_effect_retention_persistence`);
+  }
+  console.log(`  authority-sensitive cap surfaces:        ${authoritySensitiveCap.length}`);
+  for (const e of authoritySensitiveCap) {
+    console.log(`    - ${e.surface}: cap_effect_authority_sensitive (${e.authority_sensitivity})`);
+  }
+  console.log(`  unverifiable cap surfaces:               ${unverifiableCap.length}`);
+  for (const e of unverifiableCap) {
+    console.log(`    - ${e.surface}: cap_effect_unverifiable`);
+  }
+  console.log("\n  Note: retention persistence under caps does NOT automatically");
+  console.log("        imply authority drift. No authority drift was observed.");
+
+  // ── BRANCH ASYMMETRY REGISTRY ──────────────────────────────────────────
+  console.log("\n" + "═".repeat(60));
+  console.log("=== BRANCH ASYMMETRY REGISTRY");
+  console.log("═".repeat(60));
+
+  for (const e of correctiveSurfaces) {
+    let status: "stabilized" | "unstabilized" | "partially_stabilized";
+    if (e.stabilization_intent === "I1_intentionally_stabilized") {
+      status = "stabilized";
+    } else if (e.stabilization_intent === "I2_currently_preserved_insertion_semantics") {
+      status = "unstabilized";
+    } else {
+      status = "partially_stabilized";
+    }
+    console.log(`  - ${e.surface}: ${status}`);
+  }
+
+  // ── OBSERVABILITY GAPS (D.3) ───────────────────────────────────────────
+  console.log("\n" + "═".repeat(60));
+  console.log("=== SEMANTIC SURFACE OBSERVABILITY GAPS");
+  console.log("═".repeat(60));
+
+  const gapCounts: Record<RegistryObservabilityGapClass, number> = {
+    comparator_not_replay_visible: 0,
+    downstream_effect_unobservable: 0,
+    branch_not_exercised: 0,
+    insertion_effect_unobservable: 0,
+    cap_effect_unobservable: 0,
+    authority_effect_unobservable: 0,
+  };
+  for (const g of SEMANTIC_SURFACE_OBSERVABILITY_GAPS) {
+    gapCounts[g.gap_type]++;
+  }
+
+  console.log(`\n  Total observability gaps:        ${SEMANTIC_SURFACE_OBSERVABILITY_GAPS.length}`);
+  console.log("\n  Gap class distribution:");
+  for (const [cls, count] of Object.entries(gapCounts)) {
+    console.log(`    ${cls}: ${count}`);
+  }
+
+  for (const g of SEMANTIC_SURFACE_OBSERVABILITY_GAPS) {
+    console.log(`\n  surface:   ${g.surface}`);
+    console.log(`    gap_type: ${g.gap_type}`);
+    console.log(`    reason:   ${g.reason}`);
+  }
+
+  // ── DOCTRINE COMPLIANCE FOOTER ─────────────────────────────────────────
+  console.log("\n" + "═".repeat(60));
+  console.log("=== REGISTRY DOCTRINE COMPLIANCE");
+  console.log("═".repeat(60));
+  console.log("  - Registry is static, readonly, observational.");
+  console.log("  - Registry data does NOT govern orchestration, repair,");
+  console.log("    arbitration, fallback, or validator outcomes.");
+  console.log("  - Deterministic replay certification is NOT sufficient");
+  console.log("    for semantic neutrality claims; replay stability,");
+  console.log("    retention persistence, insertion sensitivity, semantic");
+  console.log("    shaping, and authority influence remain distinct surfaces.");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SCENARIO A: RECOVERY COLLAPSE
 // High fatigue, low readiness, competition approaching
 // Tests: recovery domain overrides, restoration bias, intensity reduction
@@ -3335,6 +3861,21 @@ function main() {
   //   - bounded: walks fixed registry + allResults only
   // ───────────────────────────────────────────────────────────────────────
   printForcedTieCertificationReport();
+
+  // ───────────────────────────────────────────────────────────────────────
+  // PHASE D.3 — SEMANTIC SURFACE REGISTRY REPORT
+  //
+  // Observational only. Walks the static SEMANTIC_SURFACE_REGISTRY and
+  // SEMANTIC_SURFACE_OBSERVABILITY_GAPS tables. Does NOT mutate orchestration,
+  // does NOT participate in any runtime decision, does NOT influence replay
+  // certification outcomes.
+  //
+  // Doctrine compliance:
+  //   - non-governing: registry walk does NOT feed back into runtime
+  //   - append-only: prior phases preserved above; D.3 appends only
+  //   - bounded: static 8-surface registry + static gap list
+  // ───────────────────────────────────────────────────────────────────────
+  printSemanticSurfaceRegistryReport();
 
   // Report result
   // Note: This harness is designed to DETECT and REPORT issues, not to pass/fail.
