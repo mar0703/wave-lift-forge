@@ -1,3 +1,8 @@
+// ==========================
+// CORE RUNTIME LAYER
+// DETACHED FROM RESEARCH SYSTEMS
+// ==========================
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TRAINING ORCHESTRATOR - SINGLE AUTHORITATIVE RUNTIME COORDINATOR
 //

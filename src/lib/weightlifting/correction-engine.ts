@@ -1,3 +1,8 @@
+// ==========================
+// CORE RUNTIME LAYER
+// DETACHED FROM RESEARCH SYSTEMS
+// ==========================
+
 // Correction decision engine.
 // Pure logic — does NOT touch coach pipeline, engine-store, or UI.
 // Decides: which problem matters most, what root cause to address,

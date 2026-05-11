@@ -1,3 +1,8 @@
+// ==========================
+// CORE RUNTIME LAYER
+// DETACHED FROM RESEARCH SYSTEMS
+// ==========================
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTRAINT ARBITRATION FOUNDATION - Olympic Weightlifting Constraint Resolution
 //

@@ -1,3 +1,9 @@
+// ==========================
+// RESEARCH / OBSERVABILITY LAYER
+// PHASE D.2 / D.3 SYSTEMS
+// NON-GOVERNING
+// ==========================
+
 /**
  * RUNTIME SCENARIO TEST HARNESS
  * ==============================
@@ -20,6 +26,11 @@
  * - Add heuristics
  * - Add intelligence
  * - Refactor existing systems
+ */
+
+/**
+ * PHASE D.2 and D.3 are observability and certification layers only.
+ * They must not influence runtime orchestration decisions.
  */
 
 import {
@@ -1870,6 +1881,11 @@ const PLACEHOLDER_SEMANTIC_SNAPSHOT: SemanticSnapshot = {
   semantic_state: "critical",
 };
 
+/**
+ * RESEARCH LAYER ONLY
+ * DO NOT USE FOR RUNTIME DECISIONS
+ * DO NOT IMPORT INTO CORE ORCHESTRATION
+ */
 // ─────────────────────────────────────────────────────────────────────────────
 // PHASE D.2 — FORCED TIE CERTIFICATION (types)
 //
@@ -2042,6 +2058,11 @@ const PHASE_D_COMPARATOR_SURFACES: readonly ComparatorSurfaceEntry[] = [
   },
 ];
 
+/**
+ * RESEARCH LAYER ONLY
+ * DO NOT USE FOR RUNTIME DECISIONS
+ * DO NOT IMPORT INTO CORE ORCHESTRATION
+ */
 // ─────────────────────────────────────────────────────────────────────────────
 // PHASE D.3 — SEMANTIC SURFACE REGISTRY (taxonomy + static registry)
 //
@@ -3024,6 +3045,11 @@ function scenarioE_stressClassBlockade() {
   }, scenarioEChecks);
 }
 
+/**
+ * RESEARCH LAYER ONLY
+ * DO NOT USE FOR RUNTIME DECISIONS
+ * DO NOT IMPORT INTO CORE ORCHESTRATION
+ */
 // ─────────────────────────────────────────────────────────────────────────────
 // PHASE D.2 — FORCED TIE CERTIFICATION HARNESS
 //
