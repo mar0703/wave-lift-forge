@@ -525,18 +525,18 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
   exercises = norm.exercises;
   allNotes.push(...norm.notes);
 
-  // §15 Failure protection — fallback to baseWorkout if structure invalid.
-  const hasClassic = exercises.some((e) => e.family === "snatch" || e.family === "clean");
-  const onlyCorrective = exercises.length > 0 && exercises.every((e) => {
-    const def = getExerciseById(e.exercise_id);
-    return def?.type === "technique";
-  });
-  if (!exercises.length || !hasClassic || onlyCorrective) {
+  // §15 Failure protection — LAST RESORT ONLY.
+  // Engine output is the primary source of truth. Fall back to base workout
+  // ONLY when the pipeline produced a structurally empty result. A missing
+  // classic or technique-only output can be a legitimate engine decision
+  // (e.g. recovery-only / minimal scope / arbitration-blocked classics) and
+  // must NOT trigger automatic replacement of the engine's decisions.
+  if (!exercises.length) {
     exercises = base.exercises.map((ex) => ({
       ...ex,
       intensity_pct: round25pct(clampIntensity(ex.intensity_pct)),
     }));
-    allNotes.push("⚠ Fallback to base workout (failure protection)");
+    allNotes.push("⚠ Fallback to base workout (engine produced empty plan — last-resort safety mode)");
   }
 
   // §14 focus_area MUST never be undefined.
@@ -546,8 +546,18 @@ export function runCoachPipeline(base: WorkoutOutput, state: AthleteState): Coac
     (state.competition_mode ? "competition" : phase) ||
     "general development";
 
+  // Engine-decided session intensity = mean of final per-exercise intensities.
+  // This is THE single source of truth for the session intensity displayed
+  // by the UI. Replaces the raw max-based baseline from training-engine so
+  // that all readiness/fatigue/technique adaptations flow through to the UI.
+  const adjusted_intensity = exercises.length
+    ? Math.round(
+        exercises.reduce((a, e) => a + e.intensity_pct, 0) / exercises.length,
+      )
+    : base.adjusted_intensity;
+
   return {
-    workout: { ...base, exercises, notes: allNotes },
+    workout: { ...base, exercises, adjusted_intensity, notes: allNotes },
     adjustments_applied: applied,
     detected_problems: detected,
     focus_area,

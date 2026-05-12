@@ -31,7 +31,7 @@ function focusKey(intensity: number): "technique" | "strength" | "heavy_peak" {
 
 function Dashboard() {
   const t = useT();
-  const { workout, input, coach, competition_mode } = useEngine();
+  const { workout, input, coach, competition_mode, final_context, athlete_state } = useEngine();
   if (!workout) return <Page title={t("today")}><p>{t("loading")}</p></Page>;
   const fk = focusKey(workout.adjusted_intensity);
   const tone = fk === "technique" ? "text-emerald-400" : fk === "strength" ? "text-amber-400" : "text-red-400";
@@ -142,6 +142,46 @@ function Dashboard() {
             )}
           </section>
         )}
+
+      {final_context && (
+        <section className="space-y-2 rounded-xl border border-border bg-card p-4">
+          <SectionTitle>Engine state</SectionTitle>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <Stat
+              label={t("intensity") + " ceiling"}
+              value={`${Math.round(final_context.constraints.intensity_pct)}%`}
+            />
+            <Stat
+              label="Daily priority"
+              value={humanize(final_context.intelligence_summary.daily_priority)}
+            />
+            <Stat
+              label="Phase"
+              value={humanize(final_context.intelligence_summary.training_phase)}
+            />
+            <Stat
+              label="Adaptation"
+              value={humanize(final_context.intelligence_summary.adaptation_target)}
+            />
+          </div>
+          {athlete_state && (
+            <div className="grid grid-cols-3 gap-2 pt-2 text-xs">
+              <Stat
+                label="Readiness"
+                value={String(Math.round(athlete_state.snapshot.readiness))}
+              />
+              <Stat
+                label={t("fatigue") + " (state)"}
+                value={String(Math.round(athlete_state.snapshot.fatigue))}
+              />
+              <Stat
+                label="ACWR"
+                value={athlete_state.load_history.acwr.toFixed(2)}
+              />
+            </div>
+          )}
+        </section>
+      )}
 
       {coach && (
         <section className="space-y-2 rounded-xl border border-border bg-card p-4">

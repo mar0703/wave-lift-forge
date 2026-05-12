@@ -10,6 +10,8 @@ import {
 } from "./training-engine";
 import { type AugmentedWorkout } from "./adaptive-workout";
 import { orchestrateAndPrepareWorkout } from "./orchestrator";
+import type { FinalCoachContext } from "./orchestrator";
+import type { AthleteState as UnifiedAthleteState } from "./state/athlete-state";
 import {
   detectProblems,
   getPrimaryProblem,
@@ -46,6 +48,9 @@ export interface EngineState {
   coach: CoachOutput | null;
   competition_mode: boolean;
   last_session_results: ExerciseResult[];
+  // Orchestrator outputs — primary, state-driven decision signals consumed by UI.
+  final_context: FinalCoachContext | null;
+  athlete_state: UnifiedAthleteState | null;
 }
 
 const defaultState: EngineState = {
@@ -78,6 +83,8 @@ const defaultState: EngineState = {
   coach: null,
   competition_mode: false,
   last_session_results: [],
+  final_context: null,
+  athlete_state: null,
 };
 
 let state: EngineState = load();
@@ -128,8 +135,9 @@ export const engineStore = {
       detectedProblems,
       state.correction_state,
     );
-    // FIX: Propagate athlete readiness/fatigue into orchestrator so
-    // the unified AthleteState reflects current profile inputs.
+    // FIX: Propagate athlete readiness/fatigue AND the prior unified
+    // AthleteState into orchestrator so trends/load history accumulate
+    // and the engine — not a static baseline — drives this session.
     const orchestrated = orchestrateAndPrepareWorkout({
       engine_input: state.input,
       user_maxes: state.user_maxes,
@@ -137,6 +145,7 @@ export const engineStore = {
       recent_sessions: state.history,
       readiness: state.input.readiness,
       fatigue: state.input.fatigue_score,
+      state: state.athlete_state ?? undefined,
     });
     const base: AugmentedWorkout = {
       ...baseWorkout,
@@ -162,9 +171,14 @@ export const engineStore = {
       competition_mode: state.competition_mode,
     };
     const coach = runCoachPipeline(base, athlete);
+
+    // Pure pass-through: the coach pipeline is the single source of truth
+    // for adjusted_intensity and per-exercise loads. Engine-store MUST NOT
+    // recompute, re-derive, or override these values — doing so would
+    // re-introduce the max-based UI bug.
     const merged: AugmentedWorkout = {
       ...base,
-      exercises: coach.workout.exercises,
+      ...coach.workout,
       notes: [...orchestrated.priority_notes, ...coach.notes],
       injected_exercises: coach.injected_exercises.length
         ? coach.injected_exercises
@@ -172,11 +186,23 @@ export const engineStore = {
       detected_problems: coach.detected_problems,
       primary_problem: coach.primary_problem ?? base.primary_problem,
     };
-    setState({ workout: merged, adaptation: null, coach });
+    setState({
+      workout: merged,
+      adaptation: null,
+      coach,
+      final_context: orchestrated.final_context,
+      athlete_state: orchestrated.updated_state,
+    });
   },
   setCompetitionMode(on: boolean) {
     setState({ competition_mode: on });
   },
+  /**
+   * LAST-RESORT SAFETY MODE: bypasses orchestrator and coach pipeline,
+   * producing a plain max-based percentage workout. Only call this when
+   * the engine pipeline cannot be used (e.g. crash recovery, manual
+   * diagnostics). Normal generation MUST go through `generate()`.
+   */
   generatePlain() {
     setState({ workout: generateWorkout(state.input), adaptation: null });
   },
