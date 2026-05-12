@@ -278,18 +278,121 @@ function validateWave(workout: WorkoutOutput, issues: ValidationIssue[]): void {
   }
 }
 
+// ── Weight validation ────────────────────────────────────────
+
+/** Bar-loadable rounding step (kg). Olympic plates round to 2 kg pairs. */
+export const WEIGHT_ROUNDING_KG = 2;
+/** Allowed deviation from the rounded prescription (kg). */
+export const WEIGHT_TOLERANCE_KG = 1;
+
+/**
+ * Mapping used to verify weight prescriptions. Keys may be either the
+ * `exercise_id` or the `family` of an exercise block; the validator checks
+ * `exercise_id` first, then falls back to `family`.
+ */
+export type DailyMaxes = Record<string, number>;
+
+export interface WeightValidationOptions {
+  /** Per-exercise/family training maxes in kg (e.g. daily 1RM). */
+  dailyMaxes?: DailyMaxes;
+  /** Override rounding step (default 2 kg). */
+  roundingKg?: number;
+  /** Override tolerance (default 1 kg). */
+  toleranceKg?: number;
+}
+
+/** Round a weight to the nearest `step` kg. */
+export function roundToStep(weight: number, step: number = WEIGHT_ROUNDING_KG): number {
+  if (step <= 0) return weight;
+  return Math.round(weight / step) * step;
+}
+
+function resolveMax(ex: ExerciseBlock, maxes: DailyMaxes): number | null {
+  if (Object.prototype.hasOwnProperty.call(maxes, ex.exercise_id)) {
+    return maxes[ex.exercise_id];
+  }
+  if (Object.prototype.hasOwnProperty.call(maxes, ex.family)) {
+    return maxes[ex.family];
+  }
+  return null;
+}
+
+function validateWeights(
+  workout: WorkoutOutput,
+  options: WeightValidationOptions,
+  issues: ValidationIssue[],
+): void {
+  const maxes = options.dailyMaxes;
+  if (!maxes) return;
+
+  const step = options.roundingKg ?? WEIGHT_ROUNDING_KG;
+  const tol = options.toleranceKg ?? WEIGHT_TOLERANCE_KG;
+
+  const adjAsPct =
+    workout.adjusted_intensity <= 1.5
+      ? workout.adjusted_intensity * 100
+      : workout.adjusted_intensity;
+
+  workout.exercises.forEach((ex, i) => {
+    const path = `exercises[${i}].weight_kg`;
+    const max = resolveMax(ex, maxes);
+    if (max == null || !Number.isFinite(max) || max <= 0) {
+      issues.push({
+        code: "WEIGHT_NO_MAX",
+        severity: "warning",
+        path,
+        message: `No daily max provided for exercise_id "${ex.exercise_id}" (family "${ex.family}"); skipping weight check.`,
+      });
+      return;
+    }
+
+    // Per-exercise prescribed intensity, capped by the day's adjusted intensity.
+    const prescribedPct = Math.min(ex.intensity_pct, adjAsPct);
+    const expectedRaw = (max * prescribedPct) / 100;
+    const expected = roundToStep(expectedRaw, step);
+    const delta = Math.abs(ex.weight_kg - expected);
+
+    if (delta > tol) {
+      issues.push({
+        code: "WEIGHT_ROUNDING_MISMATCH",
+        severity: "error",
+        path,
+        message: `weight_kg ${ex.weight_kg}kg ≠ expected ${expected}kg (max ${max}kg × ${prescribedPct}% = ${expectedRaw.toFixed(2)}kg, rounded to nearest ${step}kg, tolerance ±${tol}kg).`,
+      });
+      return;
+    }
+
+    // Even if within tolerance, flag prescriptions that are not on the
+    // rounding grid — they cannot be loaded on a real bar.
+    const offGrid = Math.abs(ex.weight_kg - roundToStep(ex.weight_kg, step));
+    if (offGrid > 1e-6) {
+      issues.push({
+        code: "WEIGHT_OFF_GRID",
+        severity: "warning",
+        path,
+        message: `weight_kg ${ex.weight_kg}kg is not a multiple of ${step}kg (nearest loadable: ${roundToStep(ex.weight_kg, step)}kg).`,
+      });
+    }
+  });
+}
+
 // ── Public API ───────────────────────────────────────────────
 
 /**
- * Validate a generated workout against the expected JSON schema and the
- * canonical daily wave intensity pattern.
+ * Validate a generated workout against the expected JSON schema, the
+ * canonical daily wave intensity pattern, and (when daily maxes are
+ * provided) the rounded weight prescriptions.
  */
-export function validateWorkout(workout: unknown): ValidationResult {
+export function validateWorkout(
+  workout: unknown,
+  options: WeightValidationOptions = {},
+): ValidationResult {
   const issues: ValidationIssue[] = [];
   const schemaOk = validateSchema(workout, issues);
 
   if (schemaOk) {
     validateWave(workout, issues);
+    validateWeights(workout, options, issues);
   }
 
   const errors = issues.filter((i) => i.severity === "error");
@@ -306,8 +409,11 @@ export function validateWorkout(workout: unknown): ValidationResult {
 /**
  * Throwing variant — useful in tests or strict pipelines.
  */
-export function assertValidWorkout(workout: unknown): WorkoutOutput {
-  const result = validateWorkout(workout);
+export function assertValidWorkout(
+  workout: unknown,
+  options: WeightValidationOptions = {},
+): WorkoutOutput {
+  const result = validateWorkout(workout, options);
   if (!result.valid || !result.workout) {
     const summary = result.errors
       .map((e) => `[${e.code}] ${e.path}: ${e.message}`)
