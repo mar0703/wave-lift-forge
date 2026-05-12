@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { Dumbbell, LayoutGrid, CalendarDays, BarChart3, User } from "lucide-react";
+import { Dumbbell, LayoutGrid, CalendarDays, BarChart3, User, ClipboardCheck } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
 export function BottomNav() {
   const t = useT();
   const items = [
     { to: "/", label: t("today"), icon: LayoutGrid },
+    { to: "/onboarding", label: t("onboarding_title"), icon: ClipboardCheck },
     { to: "/workout", label: t("workout"), icon: Dumbbell },
     { to: "/microcycle", label: t("cycle"), icon: CalendarDays },
     { to: "/analytics", label: t("stats"), icon: BarChart3 },
@@ -14,7 +15,7 @@ export function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-border bg-background/95 backdrop-blur">
-      <ul className="max-w-md mx-auto grid grid-cols-5">
+      <ul className="max-w-md mx-auto grid grid-cols-6">
         {items.map(({ to, label, icon: Icon }) => (
           <li key={to}>
             <Link

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkoutRouteImport } from './routes/workout'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as MicrocycleRouteImport } from './routes/microcycle'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
@@ -24,6 +25,11 @@ const WorkoutRoute = WorkoutRouteImport.update({
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MicrocycleRoute = MicrocycleRouteImport.update({
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
   '/microcycle': typeof MicrocycleRoute
+  '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/workout': typeof WorkoutRoute
   '/exercise/$id': typeof ExerciseIdRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
   '/microcycle': typeof MicrocycleRoute
+  '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/workout': typeof WorkoutRoute
   '/exercise/$id': typeof ExerciseIdRoute
@@ -68,6 +76,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRoute
   '/microcycle': typeof MicrocycleRoute
+  '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/workout': typeof WorkoutRoute
   '/exercise/$id': typeof ExerciseIdRoute
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/'
     | '/analytics'
     | '/microcycle'
+    | '/onboarding'
     | '/profile'
     | '/workout'
     | '/exercise/$id'
@@ -86,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/analytics'
     | '/microcycle'
+    | '/onboarding'
     | '/profile'
     | '/workout'
     | '/exercise/$id'
@@ -94,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/analytics'
     | '/microcycle'
+    | '/onboarding'
     | '/profile'
     | '/workout'
     | '/exercise/$id'
@@ -103,6 +115,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyticsRoute: typeof AnalyticsRoute
   MicrocycleRoute: typeof MicrocycleRoute
+  OnboardingRoute: typeof OnboardingRoute
   ProfileRoute: typeof ProfileRoute
   WorkoutRoute: typeof WorkoutRoute
   ExerciseIdRoute: typeof ExerciseIdRoute
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/microcycle': {
@@ -159,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyticsRoute: AnalyticsRoute,
   MicrocycleRoute: MicrocycleRoute,
+  OnboardingRoute: OnboardingRoute,
   ProfileRoute: ProfileRoute,
   WorkoutRoute: WorkoutRoute,
   ExerciseIdRoute: ExerciseIdRoute,

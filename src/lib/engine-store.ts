@@ -139,11 +139,15 @@ export const engineStore = {
       detectedProblems,
       state.correction_state,
     );
+    // FIX: Propagate athlete readiness/fatigue into orchestrator so
+    // the unified AthleteState reflects current profile inputs.
     const orchestrated = orchestrateAndPrepareWorkout({
       engine_input: state.input,
       user_maxes: state.user_maxes,
       correction_state: state.correction_state,
       recent_sessions: state.history,
+      readiness: state.input.readiness,
+      fatigue: state.input.fatigue_score,
     });
     const base: AugmentedWorkout = {
       ...baseWorkout,
