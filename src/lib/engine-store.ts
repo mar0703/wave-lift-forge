@@ -11,7 +11,8 @@ import {
 import { type AugmentedWorkout } from "./adaptive-workout";
 import { orchestrateAndPrepareWorkout } from "./orchestrator";
 import type { FinalCoachContext } from "./orchestrator";
-import type { AthleteState as UnifiedAthleteState } from "./state/athlete-state";
+import type { AthleteState as UnifiedAthleteState, SessionResult } from "./state/athlete-state";
+import { createInitialState, updateState } from "./state/state-engine";
 import {
   detectProblems,
   getPrimaryProblem,
@@ -247,12 +248,54 @@ export const engineStore = {
       }
     }
 
+    // Advance the unified AthleteState from the ACTUAL completed session
+    // (not from a planned/derived one). This is the single point where
+    // session feedback flows into fatigue/readiness/ACWR/trends.
+    const completedSessionLoad = state.workout.exercises.reduce(
+      (sum, ex) => sum + ex.sets * ex.reps * (ex.intensity_pct / 100),
+      0,
+    );
+    const completedAvgIntensity =
+      state.workout.exercises.length > 0
+        ? Math.round(
+            state.workout.exercises.reduce((sum, ex) => sum + ex.intensity_pct, 0) /
+              state.workout.exercises.length,
+          )
+        : 70;
+    const technicalFailure =
+      exerciseResults.some((r) => r.success_rate < 50 || r.avg_rpe >= 9) ||
+      success_rate < 50;
+    const phase =
+      state.athlete_state?.meta.phase ??
+      (state.input.training_day_index <= 2
+        ? "BASE"
+        : state.input.training_day_index <= 4
+          ? "STRENGTH"
+          : "PEAK");
+    const sessionResult: SessionResult = {
+      session_load: Math.round(completedSessionLoad * 100),
+      average_intensity: completedAvgIntensity,
+      average_rpe: average_RPE,
+      technical_failure: technicalFailure,
+      success_rate,
+      phase,
+    };
+    const baselineState =
+      state.athlete_state ??
+      createInitialState({
+        readiness: state.input.readiness * 10,
+        fatigue: state.input.fatigue_score,
+        phase,
+      });
+    const nextAthleteState = updateState(baselineState, sessionResult);
+
     setState({
       adaptation: result,
       history: [log, ...state.history].slice(0, 50),
       input: { ...state.input, fatigue_score: result.new_fatigue_score },
       correction_state: nextCorrection,
       last_session_results: exerciseResults,
+      athlete_state: nextAthleteState,
     });
   },
   reset() {
