@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEngine, engineStore } from "@/lib/engine-store";
 import { Page, SectionTitle } from "@/components/Page";
 import { generateAdaptiveWorkout } from "@/lib/adaptive-workout";
@@ -41,7 +41,7 @@ function Microcycle() {
       <section className="rounded-lg border border-border bg-card p-3">
         <div className="flex items-end justify-between gap-2 h-32">
           {days.map(({ d, w }) => {
-            const isToday = workout?.day === d;
+            const isSelected = input.training_day_index === d;
             return (
               <button
                 key={d}
@@ -50,12 +50,12 @@ function Microcycle() {
               >
                 <div className="flex-1 w-full flex items-end">
                   <div
-                    className={cn("w-full rounded-t transition-all", tone(w.adjusted_intensity), isToday ? "opacity-100" : "opacity-40")}
+                     className={cn("w-full rounded-t transition-all", tone(w.adjusted_intensity), isSelected ? "opacity-100" : "opacity-40")}
                     style={{ height: `${w.adjusted_intensity}%` }}
                   />
                 </div>
                 <div className="text-[10px] font-bold">{Math.round(w.adjusted_intensity)}%</div>
-                <div className={cn("text-[10px] uppercase", isToday ? "text-primary font-black" : "text-muted-foreground")}>D{d}</div>
+                 <div className={cn("text-[10px] uppercase", isSelected ? "text-primary font-black" : "text-muted-foreground")}>D{d}</div>
               </button>
             );
           })}
@@ -76,9 +76,11 @@ function Microcycle() {
         </section>
       ))}
 
-      <Button onClick={() => engineStore.generate()} className="w-full h-12 font-black uppercase tracking-wider">
-        {t("apply_selected_day")}
-      </Button>
+      <Link to="/">
+        <Button className="w-full h-12 font-black uppercase tracking-wider">
+          {t("apply_selected_day")}
+        </Button>
+      </Link>
     </Page>
   );
 }

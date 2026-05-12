@@ -16,16 +16,7 @@ import {
   getProblemsFromExercise,
   type ExerciseResult,
 } from "./diagnostics";
-import { getExerciseById } from "./exercise-db";
 import { runCoachPipeline, type AthleteState, type CoachOutput } from "./coach-engine";
-
-export interface FixPerformance {
-  exercise_id: string;
-  name: string;
-  status: "ok" | "struggling";
-  success_rate: number;
-  avg_rpe: number;
-}
 
 const PROBLEM_FOCUS: Record<string, string> = {
   weak_clean: "Clean strength",
@@ -52,7 +43,6 @@ export interface EngineState {
   adaptation: AdaptationResult | null;
   history: SessionLog[];
   correction_state: Record<string, number>;
-  fix_performance: FixPerformance[];
   coach: CoachOutput | null;
   competition_mode: boolean;
   last_session_results: ExerciseResult[];
@@ -85,7 +75,6 @@ const defaultState: EngineState = {
   adaptation: null,
   history: [],
   correction_state: {},
-  fix_performance: [],
   coach: null,
   competition_mode: false,
   last_session_results: [],
@@ -219,10 +208,6 @@ export const engineStore = {
     };
     // Per-exercise correction memory update (no global decay).
     const nextCorrection: Record<string, number> = { ...state.correction_state };
-    const fixPerformance: FixPerformance[] = [];
-    const injectedNames = new Set(
-      (state.workout as AugmentedWorkout).injected_exercises || [],
-    );
 
     for (const r of exerciseResults) {
       const related = getProblemsFromExercise(r.exercise_id);
@@ -234,16 +219,6 @@ export const engineStore = {
           nextCorrection[p] = (nextCorrection[p] || 0) * 0.7;
         }
       }
-      const ex = getExerciseById(r.exercise_id);
-      if (ex && injectedNames.has(ex.name_en)) {
-        fixPerformance.push({
-          exercise_id: r.exercise_id,
-          name: ex.name_en,
-          status: struggling ? "struggling" : "ok",
-          success_rate: r.success_rate,
-          avg_rpe: r.avg_rpe,
-        });
-      }
     }
 
     setState({
@@ -251,7 +226,6 @@ export const engineStore = {
       history: [log, ...state.history].slice(0, 50),
       input: { ...state.input, fatigue_score: result.new_fatigue_score },
       correction_state: nextCorrection,
-      fix_performance: fixPerformance,
       last_session_results: exerciseResults,
     });
   },
