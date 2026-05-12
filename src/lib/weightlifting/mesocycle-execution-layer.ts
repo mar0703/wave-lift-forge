@@ -16,6 +16,7 @@ import type { AdaptationTarget, MicrocycleState } from "./microcycle-engine";
 import type { TrainingPhase } from "./daily-priority-engine";
 import type { WeeklyStructurePlan } from "./weekly-structure-engine";
 import { buildWeeklyStructure } from "./weekly-structure-engine";
+import type { AthleteState } from "../state/athlete-state";
 
 export type PhaseIntent =
   | "build_capacity"
@@ -44,6 +45,9 @@ export interface MesocycleExecutionInput {
 
   fallback_adaptation_target?: AdaptationTarget;
   fallback_training_phase?: TrainingPhase;
+
+  // ── State layer (additive) ──
+  state?: AthleteState;
 }
 
 export interface ActiveMacrocyclePhase {
@@ -142,6 +146,7 @@ export function resolveMesocyclePlan(
     athlete_level: input.athlete_level,
     competition_in_days: input.competition_in_days,
     recent_microcycles: input.recent_microcycles,
+    state: input.state,
   });
 }
 

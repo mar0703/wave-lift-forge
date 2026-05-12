@@ -74,6 +74,10 @@ import type { MesocyclePlan } from "./weightlifting/mesocycle-engine";
 import type { WeeklyStructurePlan } from "./weightlifting/weekly-structure-engine";
 import type { AdaptationTarget } from "./weightlifting/microcycle-engine";
 
+// ── State layer (additive — does not modify existing logic) ──────────────────
+import type { AthleteState } from "./state/athlete-state";
+import { createInitialState, updateState } from "./state/state-engine";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. ORCHESTRATOR INPUT & CONTEXT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,6 +108,13 @@ export interface OrchestratorInput {
   success_rate?: number;
   competition_in_days?: number;
   adaptation_target?: "timing" | AdaptationTarget;
+
+  // ── State layer (additive) ──
+  // Unified AthleteState threaded through the system.
+  // When present, it is updated after this session executes
+  // and returned as `updated_state` in the orchestrator output.
+  // When omitted, a fresh initial state is used as baseline.
+  state?: AthleteState;
 
   // Strategic planning artifacts for mesocycle execution integration.
   // These are optional so existing callers can keep using the orchestrator
@@ -437,6 +448,7 @@ function buildMesocycleExecutionInput(input: OrchestratorInput): MesocycleExecut
     athlete_level: input.athlete_level,
     fallback_adaptation_target: normalizeAdaptationTarget(input.adaptation_target),
     fallback_training_phase: fallbackPhase,
+    state: input.state,
   };
 }
 
@@ -685,14 +697,56 @@ export function buildFinalCoachContext(runtime: RuntimeCoachingContext): FinalCo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 10. CONSTRAINT APPLICATION TO EXERCISES
+// 9. STATE LAYER INTEGRATION (additive — no existing logic modified)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Optional telemetry context for applyOrchestratorConstraints. Used to record
- * unknown-profile bypass events with caller, validation mode, and arbitration
- * snapshot — observability only, no behavior change.
+ * Derives a SessionResult from the orchestrated workout.
+ * This bridges the orchestrator output into the state engine input
+ * without modifying existing periodization or training output formats.
+ *
+ * Pure function — no side effects, no randomness.
  */
+function deriveSessionResult(
+  exercises: ExerciseBlock[],
+  mesocycle: MesocycleExecutionContext,
+  input: OrchestratorInput,
+) {
+  const sessionLoad = exercises.reduce(
+    (sum, ex) => sum + ex.sets * ex.reps * (ex.intensity_pct / 100),
+    0,
+  );
+
+  const avgIntensity =
+    exercises.length > 0
+      ? Math.round(exercises.reduce((sum, ex) => sum + ex.intensity_pct, 0) / exercises.length)
+      : 70;
+
+  return {
+    session_load: Math.round(sessionLoad * 100),
+    average_intensity: avgIntensity,
+    average_rpe: input.engine_input.fatigue_score > 70
+      ? 8
+      : input.engine_input.fatigue_score > 40
+        ? 6
+        : 4.5,
+    technical_failure:
+      input.success_rate != null && input.success_rate < 50,
+    success_rate: input.success_rate ?? 70,
+    phase: mapTrainingPhase(mesocycle.training_phase),
+  };
+}
+
+function mapTrainingPhase(phase: MesocycleExecutionContext["training_phase"]): AthleteState["meta"]["phase"] {
+  if (phase === "accumulation") return "BASE";
+  if (phase === "intensification") return "STRENGTH";
+  return "PEAK";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. CONSTRAINT APPLICATION TO EXERCISES
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface OrchestratorConstraintsTelemetry {
   caller?: string;
   validation_mode?: SemanticValidationMode;
@@ -700,17 +754,6 @@ export interface OrchestratorConstraintsTelemetry {
   sink?: TelemetrySink;
 }
 
-/**
- * Apply orchestrator constraints to a set of exercises.
- * - Removes blocked exercises
- * - Caps intensity based on constraints
- * - Reduces complexity if needed
- * - Biases toward intervention exercises
- *
- * Phase A: unknown-profile bypass remains in effect (exercises without a
- * stress profile are not filtered by the complexity ceiling). Each bypass is
- * recorded via telemetry for later audit.
- */
 export function applyOrchestratorConstraints(
   exercises: ExerciseBlock[],
   context: FinalCoachContext,
@@ -724,10 +767,6 @@ export function applyOrchestratorConstraints(
   return exercises
     .filter((ex) => !blocked_exercises.has(ex.exercise_id))
     .filter((ex) => {
-      // Drop exercises whose stress-taxonomy complexity exceeds the
-      // arbitrated ceiling. Unknown exercises (no profile) pass through —
-      // Phase A keeps this behavior but records every occurrence so the
-      // taxonomy-integrity audit can surface them.
       const profile = getExerciseStressProfile(ex.exercise_id);
       if (!profile) {
         telemetry?.sink?.emit({
@@ -757,15 +796,10 @@ export function applyOrchestratorConstraints(
       return profile.complexity <= complexity_max;
     })
     .map((ex) => {
-      // Apply intensity ceiling
       const cappedIntensity = Math.min(ex.intensity_pct, intensity_pct);
-
-      // Recalculate weight based on capped intensity
       const refMax =
         ex.family === "snatch" ? 100 : ex.family === "clean" || ex.family === "jerk" ? 130 : 120;
       const cappedWeight = Math.round((refMax * cappedIntensity) / 100 / 2.5) * 2.5;
-
-      // If intervention exercise, slightly boost sets for emphasis
       let sets = ex.sets;
       if (intervention_exercise_ids.has(ex.exercise_id)) {
         sets = Math.round(sets * 1.1);
@@ -781,10 +815,6 @@ export function applyOrchestratorConstraints(
     });
 }
 
-/**
- * Score exercises for alignment with daily priority
- * Returns modified exercise sets prioritized by alignment
- */
 export function prioritizeByDailyPriority(
   exercises: ExerciseBlock[],
   priorityDef: PriorityDefinition,
@@ -801,19 +831,13 @@ export function prioritizeByDailyPriority(
   });
 }
 
-/**
- * Bias exercise selection toward restoration exercises when needed
- */
 export function applyRestorationBias(
   exercises: ExerciseBlock[],
   restoration_favor: number,
 ): ExerciseBlock[] {
   if (restoration_favor <= 0.1) return exercises;
 
-  // Restoration exercises: lower intensity, technical focus
-  // Boost their sets when restoration bias is high
   return exercises.map((ex) => {
-    // Consider exercises with intensity < 75% as "restoration-friendly"
     const isRestorationFriendly = ex.intensity_pct < 75;
     if (isRestorationFriendly) {
       const boost = Math.round(1 + restoration_favor * 0.3);
@@ -823,16 +847,12 @@ export function applyRestorationBias(
   });
 }
 
-/**
- * Bias exercise selection toward specificity exercises when needed
- */
 export function applySpecificityBias(
   exercises: ExerciseBlock[],
   specificity_favor: number,
 ): ExerciseBlock[] {
   if (specificity_favor <= 0.1) return exercises;
 
-  // Classic lifts (snatch, clean, jerk) are competition-specific
   const specificFamilies = new Set(["snatch", "clean", "jerk"]);
   return exercises.map((ex) => {
     if (specificFamilies.has(ex.family)) {
@@ -847,20 +867,6 @@ export function applySpecificityBias(
 // 11. INTEGRATED ORCHESTRATOR PIPELINE
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * ORCHESTRATOR PIPELINE: Complete runtime coordination
- *
- * This replaces the legacy generateAdaptiveWorkout → coach-pipeline flow.
- * The orchestrator is now the SINGLE AUTHORITATIVE ENTRYPOINT.
- *
- * Flow:
- * 1. Build runtime context from ALL intelligence engines
- * 2. Generate base workout
- * 3. Apply orchestrator constraints (blocking, intensity ceilings, etc.)
- * 4. Apply priority biasing
- * 5. Apply restoration/specificity biases
- * 6. Return unified context for coach-engine
- */
 const noopTelemetry: TelemetrySink = {
   emit: () => {}
 };
@@ -870,8 +876,15 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
   constrained_exercises: ExerciseBlock[];
   priority_notes: string[];
   semantic_validation: OrchestrationSemanticValidationResult;
+  updated_state: AthleteState;
 } {
   const telemetry = input.telemetry_sink ?? noopTelemetry;
+
+  // Initialize state if not provided (backward compatibility)
+  const baselineState: AthleteState = input.state ?? createInitialState({
+    readiness: input.readiness,
+    fatigue: input.fatigue,
+  });
 
   // Build unified intelligence context
   const runtime_context = buildRuntimeCoachingContext(input);
@@ -889,10 +902,6 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     },
   );
 
-  // Enforce arbitrated stress-class blocks. protected_stress_classes is
-  // the recovery-flagged subset of blocked_stress_classes (recovery signals
-  // ≥70 emit into both sets), so filtering on the union covers both.
-  // Unknown exercises (no taxonomy profile) pass through unchanged.
   const blockedStressClasses = new Set([
     ...runtime_context.arbitration.blocked_stress_classes,
     ...runtime_context.arbitration.protected_stress_classes,
@@ -905,21 +914,14 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     });
   }
 
-  // Apply priority biasing
   const priorityDef = PRIORITY_DEFINITIONS[final_context.intelligence_summary.daily_priority];
   if (priorityDef) {
     exercises = prioritizeByDailyPriority(exercises, priorityDef);
   }
 
-  // Apply restoration bias
   exercises = applyRestorationBias(exercises, final_context.biases.restoration_favor);
-
-  // Apply specificity bias
   exercises = applySpecificityBias(exercises, final_context.biases.specificity_favor);
 
-  // Second-layer semantic validation. This sits after specificity bias and
-  // before final output so it can inspect the fully orchestrated workout while
-  // preserving the existing primitive/schema validation path.
   const semantic_validation = validateOrchestrationSemantics({
     runtime_context,
     final_context,
@@ -928,6 +930,14 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     telemetry: telemetry,
   });
   exercises = semantic_validation.workout;
+
+  // ── State update ──
+  const sessionResult = deriveSessionResult(
+    exercises,
+    runtime_context.mesocycle_execution,
+    input,
+  );
+  const updated_state = updateState(baselineState, sessionResult);
 
   const priority_notes = [
     `Daily priority: ${final_context.intelligence_summary.daily_priority}`,
@@ -948,5 +958,6 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     constrained_exercises: exercises,
     priority_notes,
     semantic_validation,
+    updated_state,
   };
 }

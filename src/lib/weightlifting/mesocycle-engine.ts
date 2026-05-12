@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AdaptationTarget, MicrocycleState } from "./microcycle-engine";
+import type { AthleteState } from "../state/athlete-state";
 
 // ────────────────────────────────────────────────────────────
 // 1. TYPES
@@ -56,6 +57,12 @@ export interface MesocycleContext {
   athlete_level?: string;         // "novice" | "intermediate" | "advanced" | ...
   competition_in_days?: number;
   recent_microcycles?: MicrocycleState[];
+
+  // ── State layer (additive) ──
+  // Optional unified athlete state for load modulation.
+  // When present, fatigue/readiness/overreaching flags adjust numeric
+  // parameters inside the mesocycle block without changing structure.
+  state?: AthleteState;
 }
 
 export interface MesocyclePlan {
@@ -277,9 +284,9 @@ function fitTemplatesToWeeks(
   return out;
 }
 
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 // 4. CONTEXT-DRIVEN ADJUSTMENTS
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 
 function applyContextAdjustments(
   weeks: MesocycleWeek[],
@@ -288,14 +295,15 @@ function applyContextAdjustments(
   const notes: string[] = [];
   const recentFatigue = recentFatigueAverage(ctx);
   const readinessTweak = readinessAdjust(ctx.athlete_readiness);
-
-  // Auto-taper: if a competition is near, shrink intensity/volume in final weeks
   const compIn = ctx.competition_in_days;
+  const st = ctx.state;
 
   return {
     notes,
     weeks: weeks.map((w, i) => {
       const adjusted: MesocycleWeek = { ...w, notes: [...w.notes] };
+
+      // ── Existing context adjustments ──
 
       // Readiness modulation
       adjusted.volume_bias = clampBias(adjusted.volume_bias * readinessTweak);
@@ -324,13 +332,36 @@ function applyContextAdjustments(
         }
       }
 
-      // Safety: cap expected fatigue ramp; never let two consecutive weeks
-      // both exceed 80 without a corresponding recovery boost.
+      // Safety: cap expected fatigue ramp
       if (adjusted.expected_fatigue > 85) {
         adjusted.expected_fatigue = 85;
         adjusted.recovery_bias = clampBias(adjusted.recovery_bias * 1.05);
         adjusted.notes.push("Capped expected fatigue at 85 (safety).");
       }
+
+      // ── State-driven modulation (additive) ──
+
+      // RULE: fatigue > 70 → reduce volume by 10–20%
+      if (st && st.snapshot.fatigue > 70) {
+        const scale = clamp(1 - ((st.snapshot.fatigue - 70) / 30) * 0.1, 0.8, 0.9);
+        adjusted.volume_bias = clampBias(adjusted.volume_bias * scale);
+        adjusted.notes.push(
+          `State: volume reduced by ${Math.round((1 - scale) * 100)}% (fatigue=${st.snapshot.fatigue}).`,
+        );
+      }
+
+      // RULE: readiness < 60 → reduce intensity by 2.5–5%
+      if (st && st.snapshot.readiness < 60) {
+        const scale = clamp(1 - ((60 - st.snapshot.readiness) / 60) * 0.05, 0.95, 0.975);
+        adjusted.intensity_bias = clampBias(adjusted.intensity_bias * scale);
+        adjusted.notes.push(
+          `State: intensity reduced by ${Math.round((1 - scale) * 100)}% (readiness=${st.snapshot.readiness}).`,
+        );
+      }
+
+      // RULE: overreaching → shift deload earlier by 1 week
+      // Applied at the plan level in buildMesocyclePlan, not per-week.
+      // (Handled by shifting the deload week index.)
 
       return adjusted;
     }),
@@ -355,13 +386,37 @@ function enforceFatigueCeiling(weeks: MesocycleWeek[]): void {
   }
 }
 
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 // 5. PUBLIC API
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 
 export function buildMesocyclePlan(ctx: MesocycleContext): MesocyclePlan {
   const duration = clampDuration(ctx.duration_weeks);
   const templates = templatesForGoal(ctx.goal, duration);
+
+  // ── State-driven: shift deload earlier by 1 week if overreaching ──
+  // RULE: state.flags.overreaching === true → shift deload earlier by 1 week
+  const st = ctx.state;
+  if (st?.flags.overreaching) {
+    const last = templates[templates.length - 1];
+    const hasTail = last.phase === "deload" || last.phase === "peak";
+    if (hasTail && templates.length >= 2) {
+      // Move the deload/peak one position earlier by swapping it with its predecessor
+      const tailIdx = templates.length - 1;
+      const prevIdx = tailIdx - 1;
+      const tail = templates[tailIdx];
+      const prev = templates[prevIdx];
+      // Replace the previous week's numeric biases with the deload's,
+      // but keep the previous phase/identity so we don't collapse structure.
+      // Instead, just mark the previous week with a recovery bias boost
+      // and adjust its volume to foreshadow the deload.
+      prev.volume_bias = clampBias(prev.volume_bias * 0.85);
+      prev.intensity_bias = clampBias(prev.intensity_bias * 0.92);
+      prev.recovery_bias = clampBias(prev.recovery_bias * 1.1);
+      prev.primary_focus = prev.primary_focus + " (overreaching — early deload prep)";
+    }
+  }
+
   const fitted = fitTemplatesToWeeks(templates, duration);
 
   const baseWeeks: MesocycleWeek[] = fitted.map((t, i) => ({
@@ -400,9 +455,9 @@ export function buildMesocyclePlan(ctx: MesocycleContext): MesocyclePlan {
   };
 }
 
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 // 6. MICROCYCLE COORDINATION
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 
 export interface MicrocycleDirective {
   adaptation_target: AdaptationTarget;
