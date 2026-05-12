@@ -36,6 +36,14 @@ const PROBLEM_FOCUS: Record<string, string> = {
 
 const KEY = "iron-method-state-v1";
 
+// Bump APP_VERSION whenever runtime logic, state shape, or scoring changes.
+// Any persisted state with a different version is discarded on load.
+export const APP_VERSION = "2026.05.12-1";
+
+interface StateMeta {
+  version: string;
+}
+
 export interface SessionLog {
   date: string; // ISO
   day: number;
