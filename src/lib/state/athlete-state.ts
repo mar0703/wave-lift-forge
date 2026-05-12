@@ -33,6 +33,8 @@ export type AthleteState = {
     acute_load: number;
     chronic_load: number;
     acwr: number;
+    /** Rolling window of recent session loads (most recent last). Max 28 entries for chronic computation. */
+    recent_loads: number[];
   };
 
   flags: {

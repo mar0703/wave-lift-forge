@@ -9,7 +9,7 @@
 // Rules:
 // - fatigue increases with session_load × RPE
 // - readiness decreases with fatigue accumulation + technical failure
-// - trends are rolling 7/28 day approximations
+// - ACWR = 7-day acute average / 28-day chronic average (true rolling window)
 // - flags are threshold-based boolean triggers
 //
 // Architecture:
@@ -28,6 +28,17 @@ const DEFAULT_PERFORMANCE = 65;
 const DEFAULT_TECHNICAL_QUALITY = 75;
 const DEFAULT_RECOVERY = 70;
 
+// ── Rolling window sizes ──────────────────────────────────────────────────────
+
+/** Number of sessions to include in the acute load average. */
+const ACUTE_WINDOW = 7;
+
+/** Number of sessions to include in the chronic load average. */
+const CHRONIC_WINDOW = 28;
+
+/** Maximum entries retained in the recent_loads rolling buffer. */
+const MAX_LOAD_HISTORY = CHRONIC_WINDOW;
+
 // ── Smoothing constants ───────────────────────────────────────────────────────
 
 /** How much the current session affects the snapshots (0–1). Higher = faster change. */
@@ -35,9 +46,6 @@ const SNAPSHOT_ALPHA = 0.3;
 
 /** How much the current session affects trends. */
 const TREND_ALPHA = 0.15;
-
-/** How much the current session load affects acute load history. */
-const LOAD_ALPHA = 0.25;
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -47,8 +55,6 @@ const TECHNICAL_DEGRADATION = 40;
 const UNDER_RECOVERY_READINESS = 35;
 const UNDER_RECOVERY_FATIGUE = 70;
 const LOAD_TOLERANCE_HIGH = 200;
-const FLAG_FATIGUE_THRESHOLD = 70;
-const FLAG_READINESS_THRESHOLD = 35;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -123,14 +129,15 @@ function computeTechnicalQuality(
   return clamp(Math.round(target), 0, 100);
 }
 
-// ── Rolling trend approximations ──────────────────────────────────────────────
+// ── Rolling trend approximations (EMA-based — trends are inherently smoothed) ──
 
 function updateTrends(
   prev: AthleteState,
-  session: SessionResult,
+  _session: SessionResult,
 ): AthleteState["trends"] {
   // Each trend is an exponential moving average of the current snapshots.
   // The "alpha" controls how much the present changes the rolling trend.
+  // Trends use EMA because they represent a smooth progression, not a ratio.
   const a = TREND_ALPHA;
   const prevT = prev.trends;
 
@@ -159,19 +166,45 @@ function updateTrends(
   };
 }
 
+// ── TRUE ROLLING WINDOW ACWR ──────────────────────────────────────────────────
+
+/**
+ * Computes acute and chronic load using true rolling windows:
+ * - Acute:  average of last 7 session loads
+ * - Chronic: average of last 28 session loads
+ *
+ * This replaces the previous EMA-based approach which suffered from
+ * cumulative drift — each identical session input would shift the EMA
+ * value, causing ACWR to artificially decrease on repeated apply.
+ *
+ * With a true rolling window, ACWR changes ONLY when the actual
+ * session load changes. Repeated identical inputs produce identical
+ * ACWR values (once the window stabilizes).
+ */
 function updateLoadHistory(
   prev: AthleteState,
   session: SessionResult,
 ): AthleteState["load_history"] {
-  const a = LOAD_ALPHA;
-  const prevLH = prev.load_history;
+  // Append current session load to the rolling buffer
+  const recent = [...prev.load_history.recent_loads, session.session_load];
+  // Trim to retain only the last CHRONIC_WINDOW entries
+  while (recent.length > MAX_LOAD_HISTORY) {
+    recent.shift();
+  }
 
-  // Acute load: EMA of the current session load
-  const acute = Math.round(lerp(prevLH.acute_load, session.session_load, a));
+  // Acute: average of the most recent ACUTE_WINDOW entries
+  const acuteSlice = recent.slice(-ACUTE_WINDOW);
+  const acute =
+    acuteSlice.length > 0
+      ? Math.round(acuteSlice.reduce((a, b) => a + b, 0) / acuteSlice.length)
+      : prev.load_history.acute_load;
 
-  // Chronic load: slower EMA of acute load
-  const chronicAlpha = a * 0.4;
-  const chronic = Math.round(lerp(prevLH.chronic_load, acute, chronicAlpha));
+  // Chronic: average of the most recent CHRONIC_WINDOW entries
+  const chronicSlice = recent.slice(-CHRONIC_WINDOW);
+  const chronic =
+    chronicSlice.length > 0
+      ? Math.round(chronicSlice.reduce((a, b) => a + b, 0) / chronicSlice.length)
+      : prev.load_history.chronic_load;
 
   // ACWR: acute / chronic workload ratio
   const acwr = chronic > 0 ? Math.round((acute / chronic) * 100) / 100 : 1.0;
@@ -180,6 +213,7 @@ function updateLoadHistory(
     acute_load: acute,
     chronic_load: chronic,
     acwr,
+    recent_loads: recent,
   };
 }
 
@@ -200,7 +234,10 @@ function updateFlags(state: AthleteState): AthleteState["flags"] {
 /**
  * Pure function: updates AthleteState from a session result.
  *
- * Called AFTER the orchestrator produces a session.
+ * Called AFTER the orchestrator produces a session AND after the athlete
+ * reports session results (in engine-store adapt()).  This ensures state
+ * updates always propagate after every apply action.
+ *
  * Does NOT modify the orchestrator output.
  * Does NOT introduce randomness or external dependencies.
  *
@@ -273,7 +310,7 @@ export function updateState(
   // ── 3. Update trends ──
   const trends = updateTrends(intermediate, sessionResult);
 
-  // ── 4. Update load history ──
+  // ── 4. Update load history (true rolling window — no cumulative decay) ──
   const load_history = updateLoadHistory(intermediate, sessionResult);
 
   // ── 5. Update flags ──
@@ -304,7 +341,7 @@ export function updateState(
  *   - technical_quality = 75
  *   - recovery = 70
  *   - trends = neutral (same values)
- *   - load_history: acute=200, chronic=200, acwr=1.0
+ *   - load_history: acute=200, chronic=200, acwr=1.0, recent_loads=[200]
  *   - flags = all false
  *   - phase = BASE
  *
@@ -343,6 +380,7 @@ export function createInitialState(profile?: {
       acute_load: 200,
       chronic_load: 200,
       acwr: 1.0,
+      recent_loads: [200],
     },
     flags: {
       overreaching: false,
