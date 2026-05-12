@@ -24,7 +24,7 @@
 import type { EngineInput, WorkoutOutput, ExerciseBlock } from "./training-engine";
 import { generateWorkout, buildBlock } from "./training-engine";
 import { detectProblems, selectCorrectives, getPrimaryProblem } from "./diagnostics";
-import { getExerciseById } from "./exercise-db";
+import { getExerciseById, EXERCISE_DB, getSafeExercises, type ExerciseDef } from "./exercise-db";
 
 // Recovery domain engine
 import type { RecoveryDecision, RecoveryDomains } from "./weightlifting/recovery-domain-engine";
@@ -871,6 +871,91 @@ const noopTelemetry: TelemetrySink = {
   emit: () => {}
 };
 
+// ── Candidate pool builder ───────────────────────────────────────────────────
+// Expands the anchor workout (5 hardcoded lifts from training-engine) with
+// exercises selected from the full EXERCISE_DB based on:
+//   - intervention engine selections (state-driven: fatigue/adaptation target)
+//   - corrective exercises (weakness/diagnostics from detected_problems)
+//   - daily priority's preferred families
+// Filtered for safety (readiness/fatigue) and deduped. If the pool collapses
+// to empty after filtering, the caller falls back to the anchor workout.
+
+function refMaxForFamily(family: string, input: OrchestratorInput): number {
+  const snatchMax = input.engine_input.daily_snatch_max;
+  const cjMax = input.engine_input.daily_clean_jerk_max;
+  if (family === "snatch") return snatchMax;
+  if (family === "clean" || family === "jerk") return cjMax;
+  if (family === "squat") return cjMax * 1.2;
+  if (family === "pull") {
+    // snatch-grip pulls track snatch max; clean-grip & generic track CJ max
+    return cjMax;
+  }
+  return cjMax;
+}
+
+function defaultIntensityForType(type: ExerciseDef["type"], baseIntensity: number): number {
+  // baseIntensity is a 0..1 ceiling derived from intensity_ceiling.
+  if (type === "main") return baseIntensity;
+  if (type === "power") return Math.min(baseIntensity, 0.8);
+  if (type === "strength") return Math.min(baseIntensity * 0.95, 0.85);
+  if (type === "variation") return Math.min(baseIntensity * 0.9, 0.8);
+  if (type === "technique") return Math.min(baseIntensity * 0.75, 0.7);
+  return Math.min(baseIntensity * 0.7, 0.65);
+}
+
+function buildCandidatePool(
+  base: ExerciseBlock[],
+  runtime: RuntimeCoachingContext,
+  input: OrchestratorInput,
+): ExerciseBlock[] {
+  const baseIntensity = Math.min(runtime.intensity_ceiling / 100, 1.0);
+  const safetyCtx = {
+    readiness: input.engine_input.readiness,
+    fatigue: input.engine_input.fatigue_score,
+  };
+
+  // Start with the anchor blocks (already-built).
+  const seen = new Set<string>(base.map((b) => b.exercise_id));
+  const pool: ExerciseBlock[] = [...base];
+
+  const tryAdd = (id: string) => {
+    if (seen.has(id)) return;
+    const def = getExerciseById(id);
+    if (!def) return;
+    // Safety gate: drop exercises that are unsafe given current readiness/fatigue.
+    if (getSafeExercises([def], safetyCtx).length === 0) return;
+    const intensity = defaultIntensityForType(def.type, baseIntensity);
+    const block = buildBlock(id, refMaxForFamily(def.family, input), intensity);
+    if (!block) return;
+    seen.add(id);
+    pool.push(block);
+  };
+
+  // 1. Intervention selections — primary driver of variety.
+  for (const interv of runtime.intervention_decision.selected_interventions) {
+    tryAdd(interv.exercise_id);
+  }
+
+  // 2. Corrective exercises for detected weakness (e.g. weak_clean, weak_pull).
+  for (const id of selectCorrectives(runtime.detected_problems)) {
+    tryAdd(id);
+  }
+
+  // 3. Daily-priority preferred families: sample safe, varied exercises from DB.
+  const preferred = runtime.priority_definition.preferred_families ?? [];
+  if (preferred.length > 0) {
+    const preferredSet = new Set(preferred);
+    const candidates = EXERCISE_DB.filter((e) => preferredSet.has(e.family as never));
+    // Take a small, diverse sample (favor non-main types so we don't duplicate anchors).
+    const sampled = candidates
+      .filter((e) => e.type !== "main")
+      .slice(0, 6);
+    for (const def of sampled) tryAdd(def.id);
+  }
+
+  return pool;
+}
+
 export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
   final_context: FinalCoachContext;
   constrained_exercises: ExerciseBlock[];
@@ -890,9 +975,18 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
   const runtime_context = buildRuntimeCoachingContext(input);
   const final_context = buildFinalCoachContext(runtime_context);
 
-  // Apply constraints to base exercises
-  let exercises = applyOrchestratorConstraints(
+  // Build the candidate pool from the full exercise DB (intervention engine,
+  // correctives, daily-priority families), then run it through the constraint
+  // pipeline. Fallback to the anchor base_workout only when the pool collapses
+  // to empty after filtering — never as the primary source.
+  const candidatePool = buildCandidatePool(
     final_context.base_workout,
+    runtime_context,
+    input,
+  );
+
+  let exercises = applyOrchestratorConstraints(
+    candidatePool,
     final_context,
     {
       caller: "orchestrateAndPrepareWorkout",
@@ -912,6 +1006,21 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
       if (!profile) return true;
       return !blockedStressClasses.has(profile.stress_class);
     });
+  }
+
+  // Fallback ONLY if constraints/blocks emptied the pool — pass anchors
+  // through the constraint pipeline so they still get rank/bias treatment.
+  if (exercises.length === 0) {
+    exercises = applyOrchestratorConstraints(
+      final_context.base_workout,
+      final_context,
+      {
+        caller: "orchestrateAndPrepareWorkout:fallback",
+        validation_mode: input.semantic_validation_mode ?? "warning-only",
+        arbitration: runtime_context.arbitration,
+        sink: telemetry,
+      },
+    );
   }
 
   const priorityDef = PRIORITY_DEFINITIONS[final_context.intelligence_summary.daily_priority];
