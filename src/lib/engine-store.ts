@@ -98,6 +98,7 @@ const defaultState: EngineState = {
   coach: null,
   competition_mode: false,
   last_session_results: [],
+  meta: { version: APP_VERSION },
 };
 
 let state: EngineState = load();
@@ -108,7 +109,19 @@ function load(): EngineState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultState;
-    return { ...defaultState, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw) as Partial<EngineState>;
+    if (!parsed?.meta || parsed.meta.version !== APP_VERSION) {
+      console.warn(
+        `[engine-store] STATE RESET DUE TO VERSION MISMATCH (stored=${parsed?.meta?.version ?? "none"}, app=${APP_VERSION})`,
+      );
+      try {
+        localStorage.removeItem(KEY);
+      } catch {
+        /* ignore */
+      }
+      return defaultState;
+    }
+    return { ...defaultState, ...parsed, meta: { version: APP_VERSION } };
   } catch {
     return defaultState;
   }
