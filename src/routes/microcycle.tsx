@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEngine, engineStore } from "@/lib/engine-store";
 import { Page, SectionTitle } from "@/components/Page";
-import { generateAdaptiveWorkout } from "@/lib/adaptive-workout";
+import { orchestrateAndPrepareWorkout } from "@/lib/orchestrator";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
@@ -26,14 +26,36 @@ function tone(pct: number) {
 
 function Microcycle() {
   const t = useT();
-  const { input, user_maxes, workout } = useEngine();
+  const { input, user_maxes, athlete_state } = useEngine();
+  // ── SINGLE DECISION AUTHORITY ──────────────────────────────────────────
+  // Microcycle preview MUST use orchestrator — same pipeline as generate().
+  // Never call generateAdaptiveWorkout directly, as that bypasses
+  // recovery, microcycle, priority, intervention, and arbitration layers.
+  // ───────────────────────────────────────────────────────────────────────
   const days = [1, 2, 3, 4, 5].map((d) => {
-    const w = generateAdaptiveWorkout({
-      ...input,
-      training_day_index: d as 1 | 2 | 3 | 4 | 5,
+    const orchestrated = orchestrateAndPrepareWorkout({
+      engine_input: {
+        ...input,
+        training_day_index: d as 1 | 2 | 3 | 4 | 5,
+      },
       user_maxes,
+      state: athlete_state ?? undefined,
     });
-    return { d, w };
+    const avgIntensity = orchestrated.constrained_exercises.length
+      ? Math.round(
+          orchestrated.constrained_exercises.reduce(
+            (a, e) => a + e.intensity_pct,
+            0,
+          ) / orchestrated.constrained_exercises.length,
+        )
+      : 70;
+    return {
+      d,
+      w: {
+        exercises: orchestrated.constrained_exercises,
+        adjusted_intensity: avgIntensity,
+      },
+    };
   });
 
   return (

@@ -173,19 +173,39 @@ export const engineStore = {
     };
     const coach = runCoachPipeline(base, athlete);
 
-    // Pure pass-through: the coach pipeline is the single source of truth
-    // for adjusted_intensity and per-exercise loads. Engine-store MUST NOT
-    // recompute, re-derive, or override these values — doing so would
-    // re-introduce the max-based UI bug.
+    // ── SINGLE DECISION AUTHORITY: orchestrator ──────────────────────────
+    // The orchestrator is the ONLY layer that produces final exercise
+    // selection, intensity, and session structure. All other layers
+    // (coach-engine, state-engine, UI) are READ-ONLY interpreters.
+    //
+    // Data flow: state-engine → orchestrator → engine-store → UI
+    // No layer may recompute intensity or override exercise selection.
+    //
+    // Coach-engine output (adjustments, focus, trends) is retained
+    // for DISPLAY in the diagnostics UI panel — but its workout
+    // output (exercises, intensity, structure) is intentionally
+    // DISCARDED. Only orchestrator decides the final workout.
+    // ─────────────────────────────────────────────────────────────────────
+
+    const finalAdjustedIntensity = orchestrated.constrained_exercises.length
+      ? Math.round(
+          orchestrated.constrained_exercises.reduce(
+            (a, e) => a + e.intensity_pct,
+            0,
+          ) / orchestrated.constrained_exercises.length,
+        )
+      : baseWorkout.adjusted_intensity;
+
     const merged: AugmentedWorkout = {
       ...base,
-      ...coach.workout,
-      notes: [...orchestrated.priority_notes, ...coach.notes],
-      injected_exercises: coach.injected_exercises.length
-        ? coach.injected_exercises
-        : base.injected_exercises,
+      adjusted_intensity: finalAdjustedIntensity,
+      notes: [
+        ...orchestrated.priority_notes,
+        ...coach.notes,
+      ],
       detected_problems: coach.detected_problems,
       primary_problem: coach.primary_problem ?? base.primary_problem,
+      injected_exercises: coach.injected_exercises,
     };
     setState({
       workout: merged,
