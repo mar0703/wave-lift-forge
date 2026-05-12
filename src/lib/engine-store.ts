@@ -64,6 +64,7 @@ export interface EngineState {
   coach: CoachOutput | null;
   competition_mode: boolean;
   last_session_results: ExerciseResult[];
+  meta: StateMeta;
 }
 
 const defaultState: EngineState = {
