@@ -137,7 +137,7 @@ function persist() {
 }
 
 function setState(partial: Partial<EngineState>) {
-  state = { ...state, ...partial };
+  state = { ...state, ...partial, meta: { version: APP_VERSION } };
   persist();
   listeners.forEach((l) => l());
 }
