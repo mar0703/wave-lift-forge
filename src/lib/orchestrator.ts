@@ -42,10 +42,8 @@ import type {
   PreviousSession,
   PriorityDefinition,
 } from "./weightlifting/daily-priority-engine";
-import {
-  PRIORITY_DEFINITIONS,
-  selectDailyPriority,
-} from "./weightlifting/daily-priority-engine";
+import { selectDailyPriority } from "./weightlifting/daily-priority-engine";
+import { PRIORITY_DEFINITIONS } from "./ontology";
 
 // Intervention engine
 import type { InterventionDecision, InterventionContext } from "./weightlifting/exercise-intervention-engine";
@@ -61,9 +59,9 @@ import { getExerciseStressProfile } from "./weightlifting/exercise-stress-taxono
 import {
   validateOrchestrationSemantics,
   type OrchestrationSemanticValidationResult,
-  type SemanticValidationMode,
-} from "./weightlifting/orchestration-semantic-validator";
-import { recordUnknownExerciseBypass } from "./weightlifting/orchestrator-telemetry";
+} from "./weightlifting/repair-engine";
+import type { SemanticValidationMode } from "./weightlifting/semantic-validator";
+import type { TelemetrySink } from "./telemetry/types";
 
 // Mesocycle execution integration
 import type { MacrocyclePlan } from "./weightlifting/macrocycle-engine";
@@ -120,6 +118,11 @@ export interface OrchestratorInput {
 
   // Semantic layer mode. Defaults to warning-only for developer-safe rollout.
   semantic_validation_mode?: SemanticValidationMode;
+
+  // Optional telemetry sink for dependency injection.
+  // When provided, telemetry events are emitted through this sink.
+  // When omitted, telemetry events are silently dropped.
+  telemetry_sink?: TelemetrySink;
 }
 
 export interface RuntimeCoachingContext {
@@ -454,7 +457,7 @@ export function buildRuntimeCoachingContext(input: OrchestratorInput): RuntimeCo
     sleep_quality: input.engine_input.profile_assessment.sleep_quality * 10,
     soreness: Math.max(0, input.fatigue || 0), // approximate
   };
-  const recoveryDecision = evaluateRecovery(recoveryInput);
+  const recoveryDecision = evaluateRecovery(recoveryInput, { now: Date.now });
   const recoveryDomains = recoveryDecision.recovery_domains;
 
   // 2a. Build strategic mesocycle execution context
@@ -694,6 +697,7 @@ export interface OrchestratorConstraintsTelemetry {
   caller?: string;
   validation_mode?: SemanticValidationMode;
   arbitration?: ArbitrationDecision;
+  sink?: TelemetrySink;
 }
 
 /**
@@ -726,7 +730,7 @@ export function applyOrchestratorConstraints(
       // taxonomy-integrity audit can surface them.
       const profile = getExerciseStressProfile(ex.exercise_id);
       if (!profile) {
-        recordUnknownExerciseBypass({
+        telemetry?.sink?.emit({
           exercise_id: ex.exercise_id,
           caller: telemetry?.caller ?? "applyOrchestratorConstraints",
           validation_mode: telemetry?.validation_mode ?? "unset",
@@ -875,6 +879,7 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
       caller: "orchestrateAndPrepareWorkout",
       validation_mode: input.semantic_validation_mode ?? "warning-only",
       arbitration: runtime_context.arbitration,
+      sink: input.telemetry_sink,
     },
   );
 
@@ -914,6 +919,7 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     final_context,
     exercises,
     mode: input.semantic_validation_mode ?? "warning-only",
+    telemetry: input.telemetry_sink,
   });
   exercises = semantic_validation.workout;
 

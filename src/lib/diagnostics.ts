@@ -9,6 +9,9 @@ import {
   PROBLEM_PHASE,
   PROBLEM_POSITION,
   PHASE_CORRECTIVES,
+  ROOT_CAUSE_MAP,
+} from "./ontology";
+import {
   getPhaseFromProblem,
   getCorrectivesForPhase,
   type MovementPhase,
@@ -65,21 +68,10 @@ export const PROBLEM_PRIORITY: Record<string, number> = {
   soft_lockout: 2,
 };
 
-// Likely root causes per problem. A problem is NOT automatically a root
-// cause — these are *candidate* causes the engine should consider before
-// committing to a correction strategy.
-export const ROOT_CAUSE_MAP: Record<string, string[]> = {
-  early_arm_bend: ["weak_legs", "loss_of_tension", "rushing_extension"],
-  bar_forward: ["weak_lats", "poor_transition", "no_leg_drive"],
-  bar_drift: ["weak_lats", "poor_transition", "no_leg_drive"],
-  slow_pull_under: ["poor_timing", "low_speed_under", "weak_extension"],
-  weak_legs: ["low_squat_strength", "fatigue_accumulation"],
-  no_extension: ["rushing_extension", "weak_posterior_chain"],
-  unstable_receive: ["poor_mobility", "weak_overhead", "weak_legs"],
-  soft_lockout: ["weak_overhead", "shoulder_mobility"],
-  weak_pull: ["weak_posterior_chain", "weak_first_pull"],
-  poor_position: ["mobility_restriction", "weak_core"],
-};
+// `ROOT_CAUSE_MAP` lives in `./ontology` and is imported above. Likely root
+// causes per problem — a problem is NOT automatically a root cause; these
+// are *candidate* causes the engine should consider before committing to a
+// correction strategy.
 
 // ─────────────────── Trend tracking ───────────────────
 

@@ -20,7 +20,7 @@ import {
   type OrchestratorInput,
 } from "../src/lib/orchestrator.js";
 
-import * as SemanticValidator from "../src/lib/weightlifting/orchestration-semantic-validator.js";
+import * as SemanticValidator from "../src/lib/weightlifting/repair-engine.js";
 
 import {
   arbitrateConstraints,

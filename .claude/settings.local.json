@@ -9,7 +9,12 @@
       "Bash(echo \"---tsc exit $?\")",
       "Bash(pwsh -Command \"Get-Item -Path src/integrations -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName\")",
       "Bash(cd \"/c/Users/LENOVO/Nowy folder/wave-lift-forge\" && find src/lib/weightlifting -name \"*.ts\" -type f | sort)",
-      "Read(//c/c/Users/LENOVO/Nowy folder/wave-lift-forge/src/lib/**)"
+      "Read(//c/c/Users/LENOVO/Nowy folder/wave-lift-forge/src/lib/**)",
+      "Bash(npm run *)",
+      "PowerShell(npx tsc --noEmit 2>&1)",
+      "PowerShell(npx tsx tests/determinism.test.ts 2>&1)",
+      "Bash(npx eslint *)",
+      "Bash(bun test *)"
     ]
   }
 }

@@ -16,11 +16,9 @@ import {
   getAllExerciseProfiles,
   getExerciseStressProfile,
 } from "./exercise-stress-taxonomy";
-import { REPAIR_CANDIDATES } from "./orchestration-semantic-validator";
-import {
-  getUnknownExerciseBypassEvents,
-  type UnknownExerciseBypassEvent,
-} from "./orchestrator-telemetry";
+import { REPAIR_CANDIDATES } from "./repair-engine";
+import { getUnknownExerciseBypassEvents } from "../observability/in-memory-sink";
+import type { UnknownExerciseBypassEvent } from "../telemetry/types";
 
 /**
  * Authoritative list of every stress class the taxonomy declares. Kept in

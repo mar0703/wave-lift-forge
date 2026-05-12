@@ -18,11 +18,11 @@ import {
 } from "../exercise-db";
 import {
   PROBLEM_PRIORITY,
-  ROOT_CAUSE_MAP,
   getProblemTrend,
   selectCorrectives as selectCorrectivesByPhase,
   type Trend,
 } from "../diagnostics";
+import { ROOT_CAUSE_MAP } from "../ontology";
 import {
   getPhaseFromProblem,
   type MovementPhase,

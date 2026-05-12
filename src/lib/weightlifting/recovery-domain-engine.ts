@@ -18,6 +18,8 @@ import type { FatigueState } from "./exercise-intervention-engine";
 // 1. TYPES
 // ────────────────────────────────────────────────────────────
 
+export type RuntimeClock = { now(): number };
+
 export interface RecoveryDomains {
   /** 0 = collapsed, 100 = fully fresh */
   cns: number;
@@ -130,6 +132,7 @@ function sessionDomainCost(s: MicrocycleSession): RecoveryDomains {
 
 export function calculateRecoveryDomains(
   input: RecoveryInput,
+  clock: RuntimeClock,
 ): RecoveryDomains {
   // Start fully fresh, subtract accumulated residual fatigue at the end.
   const fatigue: RecoveryDomains = {
@@ -177,7 +180,7 @@ export function calculateRecoveryDomains(
   // Decay from last session to "today" (best-effort if dates exist).
   if (prevDate) {
     const days =
-      (Date.now() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
+      (clock.now() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
     if (days > 0) decay(fatigue, days);
   }
 
@@ -222,8 +225,11 @@ const PROTECTED_THRESHOLD = 30;
 // Coordination is treated more conservatively — coaching error to push it.
 const COORD_PROTECTED_THRESHOLD = 40;
 
-export function evaluateRecovery(input: RecoveryInput): RecoveryDecision {
-  const domains = calculateRecoveryDomains(input);
+export function evaluateRecovery(
+  input: RecoveryInput,
+  clock: RuntimeClock,
+): RecoveryDecision {
+  const domains = calculateRecoveryDomains(input, clock);
 
   const degraded: string[] = [];
   const protectedDomains: string[] = [];

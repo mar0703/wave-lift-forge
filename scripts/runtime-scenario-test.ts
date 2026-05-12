@@ -44,7 +44,7 @@ import {
 import {
   type OrchestrationSemanticValidationResult,
   type SemanticValidationMode,
-} from "../src/lib/weightlifting/orchestration-semantic-validator";
+} from "../src/lib/weightlifting/repair-engine";
 import { getExerciseStressProfile, getAllExerciseProfiles } from "../src/lib/weightlifting/exercise-stress-taxonomy";
 import {
   clearUnknownExerciseBypassEvents,
