@@ -36,6 +36,14 @@ const PROBLEM_FOCUS: Record<string, string> = {
 
 const KEY = "iron-method-state-v1";
 
+// Bump APP_VERSION whenever runtime logic, state shape, or scoring changes.
+// Any persisted state with a different version is discarded on load.
+export const APP_VERSION = "2026.05.12-1";
+
+interface StateMeta {
+  version: string;
+}
+
 export interface SessionLog {
   date: string; // ISO
   day: number;
@@ -56,6 +64,7 @@ export interface EngineState {
   coach: CoachOutput | null;
   competition_mode: boolean;
   last_session_results: ExerciseResult[];
+  meta: StateMeta;
 }
 
 const defaultState: EngineState = {
@@ -89,6 +98,7 @@ const defaultState: EngineState = {
   coach: null,
   competition_mode: false,
   last_session_results: [],
+  meta: { version: APP_VERSION },
 };
 
 let state: EngineState = load();
@@ -99,7 +109,19 @@ function load(): EngineState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultState;
-    return { ...defaultState, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw) as Partial<EngineState>;
+    if (!parsed?.meta || parsed.meta.version !== APP_VERSION) {
+      console.warn(
+        `[engine-store] STATE RESET DUE TO VERSION MISMATCH (stored=${parsed?.meta?.version ?? "none"}, app=${APP_VERSION})`,
+      );
+      try {
+        localStorage.removeItem(KEY);
+      } catch {
+        /* ignore */
+      }
+      return defaultState;
+    }
+    return { ...defaultState, ...parsed, meta: { version: APP_VERSION } };
   } catch {
     return defaultState;
   }
@@ -115,7 +137,7 @@ function persist() {
 }
 
 function setState(partial: Partial<EngineState>) {
-  state = { ...state, ...partial };
+  state = { ...state, ...partial, meta: { version: APP_VERSION } };
   persist();
   listeners.forEach((l) => l());
 }
