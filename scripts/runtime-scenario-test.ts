@@ -49,7 +49,7 @@ import { getExerciseStressProfile, getAllExerciseProfiles } from "../src/lib/wei
 import {
   clearUnknownExerciseBypassEvents,
   getUnknownExerciseBypassEvents,
-} from "../src/lib/weightlifting/orchestrator-telemetry";
+} from "../src/lib/observability/in-memory-sink";
 import type { ExerciseBlock } from "../src/lib/training-engine";
 import { createHash } from "node:crypto";
 

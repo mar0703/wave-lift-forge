@@ -709,7 +709,7 @@ export interface OrchestratorConstraintsTelemetry {
  *
  * Phase A: unknown-profile bypass remains in effect (exercises without a
  * stress profile are not filtered by the complexity ceiling). Each bypass is
- * recorded via orchestrator-telemetry for later audit.
+ * recorded via telemetry for later audit.
  */
 export function applyOrchestratorConstraints(
   exercises: ExerciseBlock[],
@@ -861,12 +861,18 @@ export function applySpecificityBias(
  * 5. Apply restoration/specificity biases
  * 6. Return unified context for coach-engine
  */
+const noopTelemetry: TelemetrySink = {
+  emit: () => {}
+};
+
 export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
   final_context: FinalCoachContext;
   constrained_exercises: ExerciseBlock[];
   priority_notes: string[];
   semantic_validation: OrchestrationSemanticValidationResult;
 } {
+  const telemetry = input.telemetry_sink ?? noopTelemetry;
+
   // Build unified intelligence context
   const runtime_context = buildRuntimeCoachingContext(input);
   const final_context = buildFinalCoachContext(runtime_context);
@@ -879,7 +885,7 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
       caller: "orchestrateAndPrepareWorkout",
       validation_mode: input.semantic_validation_mode ?? "warning-only",
       arbitration: runtime_context.arbitration,
-      sink: input.telemetry_sink,
+      sink: telemetry,
     },
   );
 
@@ -919,7 +925,7 @@ export function orchestrateAndPrepareWorkout(input: OrchestratorInput): {
     final_context,
     exercises,
     mode: input.semantic_validation_mode ?? "warning-only",
-    telemetry: input.telemetry_sink,
+    telemetry: telemetry,
   });
   exercises = semantic_validation.workout;
 
