@@ -104,6 +104,21 @@ const defaultState: EngineState = {
 let state: EngineState = load();
 const listeners = new Set<() => void>();
 
+// TEMPORARY runtime debug — confirms version + state alignment per session.
+if (typeof window !== "undefined") {
+  // eslint-disable-next-line no-console
+  console.log("[engine-store] runtime", {
+    app_version: APP_VERSION,
+    state_version: state.meta.version,
+    readiness: state.input.readiness,
+    fatigue: state.input.fatigue_score,
+    acwr: state.history.length
+      ? state.history.slice(0, 7).reduce((a, h) => a + h.adjusted_intensity, 0) /
+        Math.max(1, state.history.slice(0, 28).reduce((a, h) => a + h.adjusted_intensity, 0) / 4)
+      : null,
+  });
+}
+
 function load(): EngineState {
   if (typeof localStorage === "undefined") return defaultState;
   try {
