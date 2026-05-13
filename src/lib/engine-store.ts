@@ -254,8 +254,17 @@ function setState(partial: Partial<EngineState>) {
   if (typeof window !== "undefined" && partial.workout !== undefined) {
     const acwr7 = prev.history.slice(0, 7).reduce((a, h) => a + h.adjusted_intensity, 0) / Math.max(1, Math.min(7, prev.history.length));
     const acwr28 = prev.history.slice(0, 28).reduce((a, h) => a + h.adjusted_intensity, 0) / Math.max(1, Math.min(28, prev.history.length));
+    const acwr = acwr28 ? acwr7 / acwr28 : null;
+    const hash = hashWorkout(state.workout);
+    const path_id = __TRACER__.currentPath ?? "apply_workout_flow";
+    const intensity =
+      (state.workout as { adjusted_intensity?: number } | null)?.adjusted_intensity ??
+      null;
     // eslint-disable-next-line no-console
     console.log("[TRACER][STATE_UPDATE]", {
+      path_id,
+      session_id: __TRACER__.sessionId,
+      state_version: state.meta.version,
       prev_state_snapshot: {
         workout_hash: hashWorkout(prev.workout),
         readiness: prev.input.readiness,
@@ -263,23 +272,32 @@ function setState(partial: Partial<EngineState>) {
       },
       session_result_input: partial,
       next_state_output: {
-        workout_hash: hashWorkout(state.workout),
+        workout_hash: hash,
         readiness: state.input.readiness,
         fatigue: state.input.fatigue_score,
       },
-      acwr: acwr28 ? acwr7 / acwr28 : null,
-      fatigue: state.input.fatigue_score,
-      readiness: state.input.readiness,
+      acwr,
     });
-    const hash = hashWorkout(state.workout);
     __TRACER__.lastStoredWorkoutHash = hash;
     // eslint-disable-next-line no-console
     console.log("[TRACER][STORE_COMMIT]", {
+      path_id,
+      session_id: __TRACER__.sessionId,
       stored_workout: state.workout,
       stored_state_version: state.meta.version,
       reference_id: KEY,
       workout_hash: hash,
     });
+    __TRACER__.paths.push({
+      path_id,
+      session_id: __TRACER__.sessionId,
+      state_version: state.meta.version,
+      timestamp: new Date().toISOString(),
+      workout_hash: hash,
+      intensity,
+      acwr,
+    });
+    __TRACER__.comparePaths();
   }
   persist();
   listeners.forEach((l) => l());
