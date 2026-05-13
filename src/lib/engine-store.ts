@@ -123,18 +123,43 @@ function load(): EngineState {
   if (typeof localStorage === "undefined") return defaultState;
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return defaultState;
+    if (!raw) {
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.log("[TRACER][PATH_START]", {
+          path_id: "state_rehydrate_flow",
+          timestamp: new Date().toISOString(),
+          outcome: "fresh_default",
+        });
+      }
+      return defaultState;
+    }
     const parsed = JSON.parse(raw) as Partial<EngineState>;
     if (!parsed?.meta || parsed.meta.version !== APP_VERSION) {
       console.warn(
         `[engine-store] STATE RESET DUE TO VERSION MISMATCH (stored=${parsed?.meta?.version ?? "none"}, app=${APP_VERSION})`,
       );
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.log("[TRACER][HIDDEN_PATH_DETECTED]", {
+          source: "fallback_trigger_flow",
+          detail: { reason: "version_mismatch", stored: parsed?.meta?.version },
+        });
+      }
       try {
         localStorage.removeItem(KEY);
       } catch {
         /* ignore */
       }
       return defaultState;
+    }
+    if (typeof window !== "undefined") {
+      // eslint-disable-next-line no-console
+      console.log("[TRACER][PATH_START]", {
+        path_id: "state_rehydrate_flow",
+        timestamp: new Date().toISOString(),
+        outcome: "restored",
+      });
     }
     return { ...defaultState, ...parsed, meta: { version: APP_VERSION } };
   } catch {
@@ -162,14 +187,91 @@ function hashWorkout(w: unknown): string {
   }
 }
 
-// Exposed for UI-side divergence comparison.
+// Exposed for UI-side divergence comparison + multi-path tracing.
+type PathId =
+  | "session_submit_flow"
+  | "workout_generate_flow"
+  | "apply_workout_flow"
+  | "state_rehydrate_flow"
+  | "fallback_trigger_flow"
+  | "rapid_reapply_flow";
+
+interface PathRecord {
+  path_id: PathId;
+  session_id: string;
+  state_version: string;
+  timestamp: string;
+  workout_hash: string;
+  intensity: number | null;
+  acwr: number | null;
+}
+
 export const __TRACER__: {
   lastOrchestratorOutput: unknown;
   lastStoredWorkoutHash: string | null;
+  paths: PathRecord[];
+  currentPath: PathId | null;
+  sessionId: string;
+  lastPathTs: number;
+  detectHidden: (source: string, detail?: unknown) => void;
+  comparePaths: () => void;
 } = {
   lastOrchestratorOutput: null,
   lastStoredWorkoutHash: null,
+  paths: [],
+  currentPath: null,
+  sessionId:
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `s_${Date.now()}`,
+  lastPathTs: 0,
+  detectHidden(source, detail) {
+    if (typeof window === "undefined") return;
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][HIDDEN_PATH_DETECTED]", { source, detail });
+  },
+  comparePaths() {
+    if (typeof window === "undefined") return;
+    const intensities = new Set(
+      __TRACER__.paths.map((p) => p.intensity).filter((v) => v !== null),
+    );
+    const hashes = new Set(__TRACER__.paths.map((p) => p.workout_hash));
+    const acwrs = new Set(
+      __TRACER__.paths.map((p) => p.acwr).filter((v) => v !== null),
+    );
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][CROSS_PATH_REPORT]", {
+      total_paths: __TRACER__.paths.length,
+      intensity_consistency: intensities.size <= 1,
+      state_consistency: hashes.size <= 1,
+      acwr_consistency: acwrs.size <= 1,
+      paths: __TRACER__.paths,
+    });
+  },
 };
+
+function startPath(path_id: PathId) {
+  if (typeof window === "undefined") return;
+  const now = Date.now();
+  if (__TRACER__.lastPathTs && now - __TRACER__.lastPathTs < 250) {
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][PATH_START]", {
+      path_id: "rapid_reapply_flow",
+      origin_path: path_id,
+      timestamp: new Date(now).toISOString(),
+      session_id: __TRACER__.sessionId,
+    });
+  }
+  __TRACER__.lastPathTs = now;
+  __TRACER__.currentPath = path_id;
+  // eslint-disable-next-line no-console
+  console.log("[TRACER][PATH_START]", {
+    path_id,
+    timestamp: new Date(now).toISOString(),
+    session_id: __TRACER__.sessionId,
+    state_version: state.meta.version,
+  });
+}
 
 function setState(partial: Partial<EngineState>) {
   const prev = state;
@@ -177,8 +279,17 @@ function setState(partial: Partial<EngineState>) {
   if (typeof window !== "undefined" && partial.workout !== undefined) {
     const acwr7 = prev.history.slice(0, 7).reduce((a, h) => a + h.adjusted_intensity, 0) / Math.max(1, Math.min(7, prev.history.length));
     const acwr28 = prev.history.slice(0, 28).reduce((a, h) => a + h.adjusted_intensity, 0) / Math.max(1, Math.min(28, prev.history.length));
+    const acwr = acwr28 ? acwr7 / acwr28 : null;
+    const hash = hashWorkout(state.workout);
+    const path_id = __TRACER__.currentPath ?? "apply_workout_flow";
+    const intensity =
+      (state.workout as { adjusted_intensity?: number } | null)?.adjusted_intensity ??
+      null;
     // eslint-disable-next-line no-console
     console.log("[TRACER][STATE_UPDATE]", {
+      path_id,
+      session_id: __TRACER__.sessionId,
+      state_version: state.meta.version,
       prev_state_snapshot: {
         workout_hash: hashWorkout(prev.workout),
         readiness: prev.input.readiness,
@@ -186,23 +297,32 @@ function setState(partial: Partial<EngineState>) {
       },
       session_result_input: partial,
       next_state_output: {
-        workout_hash: hashWorkout(state.workout),
+        workout_hash: hash,
         readiness: state.input.readiness,
         fatigue: state.input.fatigue_score,
       },
-      acwr: acwr28 ? acwr7 / acwr28 : null,
-      fatigue: state.input.fatigue_score,
-      readiness: state.input.readiness,
+      acwr,
     });
-    const hash = hashWorkout(state.workout);
     __TRACER__.lastStoredWorkoutHash = hash;
     // eslint-disable-next-line no-console
     console.log("[TRACER][STORE_COMMIT]", {
+      path_id,
+      session_id: __TRACER__.sessionId,
       stored_workout: state.workout,
       stored_state_version: state.meta.version,
       reference_id: KEY,
       workout_hash: hash,
     });
+    __TRACER__.paths.push({
+      path_id,
+      session_id: __TRACER__.sessionId,
+      state_version: state.meta.version,
+      timestamp: new Date().toISOString(),
+      workout_hash: hash,
+      intensity,
+      acwr,
+    });
+    __TRACER__.comparePaths();
   }
   persist();
   listeners.forEach((l) => l());
@@ -221,6 +341,7 @@ export const engineStore = {
     setState({ user_maxes: { ...state.user_maxes, [id]: kg } });
   },
   generate() {
+    startPath("workout_generate_flow");
     const baseWorkout = generateWorkout(state.input);
     const detectedProblems = detectProblems(state.user_maxes);
     const primaryProblem = getPrimaryProblem(
@@ -289,6 +410,7 @@ export const engineStore = {
     setState({ competition_mode: on });
   },
   generatePlain() {
+    startPath("apply_workout_flow");
     setState({ workout: generateWorkout(state.input), adaptation: null });
   },
   adapt(
@@ -296,7 +418,11 @@ export const engineStore = {
     average_RPE: number,
     exerciseResults: ExerciseResult[] = [],
   ) {
-    if (!state.workout) return;
+    startPath("session_submit_flow");
+    if (!state.workout) {
+      __TRACER__.detectHidden("adapt_skipped_no_workout");
+      return;
+    }
     const result = postWorkoutAdaptation({
       success_rate,
       average_RPE,
