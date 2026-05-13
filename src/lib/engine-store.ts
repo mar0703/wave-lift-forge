@@ -385,6 +385,7 @@ export const engineStore = {
     setState({ competition_mode: on });
   },
   generatePlain() {
+    startPath("apply_workout_flow");
     setState({ workout: generateWorkout(state.input), adaptation: null });
   },
   adapt(
@@ -392,7 +393,11 @@ export const engineStore = {
     average_RPE: number,
     exerciseResults: ExerciseResult[] = [],
   ) {
-    if (!state.workout) return;
+    startPath("session_submit_flow");
+    if (!state.workout) {
+      __TRACER__.detectHidden("adapt_skipped_no_workout");
+      return;
+    }
     const result = postWorkoutAdaptation({
       success_rate,
       average_RPE,
