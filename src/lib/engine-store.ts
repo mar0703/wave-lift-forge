@@ -162,14 +162,91 @@ function hashWorkout(w: unknown): string {
   }
 }
 
-// Exposed for UI-side divergence comparison.
+// Exposed for UI-side divergence comparison + multi-path tracing.
+type PathId =
+  | "session_submit_flow"
+  | "workout_generate_flow"
+  | "apply_workout_flow"
+  | "state_rehydrate_flow"
+  | "fallback_trigger_flow"
+  | "rapid_reapply_flow";
+
+interface PathRecord {
+  path_id: PathId;
+  session_id: string;
+  state_version: string;
+  timestamp: string;
+  workout_hash: string;
+  intensity: number | null;
+  acwr: number | null;
+}
+
 export const __TRACER__: {
   lastOrchestratorOutput: unknown;
   lastStoredWorkoutHash: string | null;
+  paths: PathRecord[];
+  currentPath: PathId | null;
+  sessionId: string;
+  lastPathTs: number;
+  detectHidden: (source: string, detail?: unknown) => void;
+  comparePaths: () => void;
 } = {
   lastOrchestratorOutput: null,
   lastStoredWorkoutHash: null,
+  paths: [],
+  currentPath: null,
+  sessionId:
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `s_${Date.now()}`,
+  lastPathTs: 0,
+  detectHidden(source, detail) {
+    if (typeof window === "undefined") return;
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][HIDDEN_PATH_DETECTED]", { source, detail });
+  },
+  comparePaths() {
+    if (typeof window === "undefined") return;
+    const intensities = new Set(
+      __TRACER__.paths.map((p) => p.intensity).filter((v) => v !== null),
+    );
+    const hashes = new Set(__TRACER__.paths.map((p) => p.workout_hash));
+    const acwrs = new Set(
+      __TRACER__.paths.map((p) => p.acwr).filter((v) => v !== null),
+    );
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][CROSS_PATH_REPORT]", {
+      total_paths: __TRACER__.paths.length,
+      intensity_consistency: intensities.size <= 1,
+      state_consistency: hashes.size <= 1,
+      acwr_consistency: acwrs.size <= 1,
+      paths: __TRACER__.paths,
+    });
+  },
 };
+
+function startPath(path_id: PathId) {
+  if (typeof window === "undefined") return;
+  const now = Date.now();
+  if (__TRACER__.lastPathTs && now - __TRACER__.lastPathTs < 250) {
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][PATH_START]", {
+      path_id: "rapid_reapply_flow",
+      origin_path: path_id,
+      timestamp: new Date(now).toISOString(),
+      session_id: __TRACER__.sessionId,
+    });
+  }
+  __TRACER__.lastPathTs = now;
+  __TRACER__.currentPath = path_id;
+  // eslint-disable-next-line no-console
+  console.log("[TRACER][PATH_START]", {
+    path_id,
+    timestamp: new Date(now).toISOString(),
+    session_id: __TRACER__.sessionId,
+    state_version: state.meta.version,
+  });
+}
 
 function setState(partial: Partial<EngineState>) {
   const prev = state;
