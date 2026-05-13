@@ -24,6 +24,31 @@ export default function Dashboard({
   workout: Workout;
   onStart: () => void;
 }) {
+  if (typeof window !== "undefined") {
+    const stored = engineStore.get().workout;
+    const orch = __TRACER__.lastOrchestratorOutput as { workout?: { adjusted_intensity?: number } } | null;
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][UI_RENDER]", {
+      workout_from_store: stored,
+      displayed_intensity: workout.adjusted_intensity,
+      displayed_acwr: null,
+      displayed_fatigue: null,
+      displayed_readiness: null,
+      app_version: APP_VERSION,
+    });
+    const orchInt = orch?.workout?.adjusted_intensity;
+    const storeInt = (stored as { adjusted_intensity?: number } | null)?.adjusted_intensity;
+    const uiInt = workout.adjusted_intensity;
+    if ((orchInt !== undefined && orchInt !== uiInt) || (storeInt !== undefined && storeInt !== uiInt)) {
+      // eslint-disable-next-line no-console
+      console.log("[TRACER][DIVERGENCE_DETECTED]", {
+        mismatch_field: "adjusted_intensity",
+        orchestrator_value: orchInt,
+        store_value: storeInt,
+        ui_value: uiInt,
+      });
+    }
+  }
   return (
     <div className="bg-background text-foreground min-h-screen flex flex-col">
       {/* HEADER */}
