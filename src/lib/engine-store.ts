@@ -316,6 +316,7 @@ export const engineStore = {
     setState({ user_maxes: { ...state.user_maxes, [id]: kg } });
   },
   generate() {
+    startPath("workout_generate_flow");
     const baseWorkout = generateWorkout(state.input);
     const detectedProblems = detectProblems(state.user_maxes);
     const primaryProblem = getPrimaryProblem(
