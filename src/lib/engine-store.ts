@@ -151,8 +151,59 @@ function persist() {
   }
 }
 
+function hashWorkout(w: unknown): string {
+  try {
+    const s = JSON.stringify(w);
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return `${s.length}:${h}`;
+  } catch {
+    return "n/a";
+  }
+}
+
+// Exposed for UI-side divergence comparison.
+export const __TRACER__: {
+  lastOrchestratorOutput: unknown;
+  lastStoredWorkoutHash: string | null;
+} = {
+  lastOrchestratorOutput: null,
+  lastStoredWorkoutHash: null,
+};
+
 function setState(partial: Partial<EngineState>) {
+  const prev = state;
   state = { ...state, ...partial, meta: { version: APP_VERSION } };
+  if (typeof window !== "undefined" && partial.workout !== undefined) {
+    const acwr7 = prev.history.slice(0, 7).reduce((a, h) => a + h.adjusted_intensity, 0) / Math.max(1, Math.min(7, prev.history.length));
+    const acwr28 = prev.history.slice(0, 28).reduce((a, h) => a + h.adjusted_intensity, 0) / Math.max(1, Math.min(28, prev.history.length));
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][STATE_UPDATE]", {
+      prev_state_snapshot: {
+        workout_hash: hashWorkout(prev.workout),
+        readiness: prev.input.readiness,
+        fatigue: prev.input.fatigue_score,
+      },
+      session_result_input: partial,
+      next_state_output: {
+        workout_hash: hashWorkout(state.workout),
+        readiness: state.input.readiness,
+        fatigue: state.input.fatigue_score,
+      },
+      acwr: acwr28 ? acwr7 / acwr28 : null,
+      fatigue: state.input.fatigue_score,
+      readiness: state.input.readiness,
+    });
+    const hash = hashWorkout(state.workout);
+    __TRACER__.lastStoredWorkoutHash = hash;
+    // eslint-disable-next-line no-console
+    console.log("[TRACER][STORE_COMMIT]", {
+      stored_workout: state.workout,
+      stored_state_version: state.meta.version,
+      reference_id: KEY,
+      workout_hash: hash,
+    });
+  }
   persist();
   listeners.forEach((l) => l());
 }
