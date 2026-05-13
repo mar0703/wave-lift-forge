@@ -267,6 +267,22 @@ export const engineStore = {
       detected_problems: coach.detected_problems,
       primary_problem: coach.primary_problem ?? base.primary_problem,
     };
+    if (typeof window !== "undefined") {
+      __TRACER__.lastOrchestratorOutput = {
+        workout: merged,
+        intensity: merged.adjusted_intensity,
+        constraints: orchestrated.priority_notes,
+      };
+      // eslint-disable-next-line no-console
+      console.log("[TRACER][ORCHESTRATOR_OUTPUT]", {
+        timestamp: new Date().toISOString(),
+        workout: merged,
+        intensity: merged.adjusted_intensity,
+        constraints: orchestrated.priority_notes,
+        updated_state: { input: state.input, user_maxes: state.user_maxes },
+        workout_hash: hashWorkout(merged),
+      });
+    }
     setState({ workout: merged, adaptation: null, coach });
   },
   setCompetitionMode(on: boolean) {
