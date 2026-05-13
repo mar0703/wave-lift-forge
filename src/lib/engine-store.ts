@@ -123,18 +123,43 @@ function load(): EngineState {
   if (typeof localStorage === "undefined") return defaultState;
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return defaultState;
+    if (!raw) {
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.log("[TRACER][PATH_START]", {
+          path_id: "state_rehydrate_flow",
+          timestamp: new Date().toISOString(),
+          outcome: "fresh_default",
+        });
+      }
+      return defaultState;
+    }
     const parsed = JSON.parse(raw) as Partial<EngineState>;
     if (!parsed?.meta || parsed.meta.version !== APP_VERSION) {
       console.warn(
         `[engine-store] STATE RESET DUE TO VERSION MISMATCH (stored=${parsed?.meta?.version ?? "none"}, app=${APP_VERSION})`,
       );
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.log("[TRACER][HIDDEN_PATH_DETECTED]", {
+          source: "fallback_trigger_flow",
+          detail: { reason: "version_mismatch", stored: parsed?.meta?.version },
+        });
+      }
       try {
         localStorage.removeItem(KEY);
       } catch {
         /* ignore */
       }
       return defaultState;
+    }
+    if (typeof window !== "undefined") {
+      // eslint-disable-next-line no-console
+      console.log("[TRACER][PATH_START]", {
+        path_id: "state_rehydrate_flow",
+        timestamp: new Date().toISOString(),
+        outcome: "restored",
+      });
     }
     return { ...defaultState, ...parsed, meta: { version: APP_VERSION } };
   } catch {
