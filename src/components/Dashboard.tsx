@@ -1,4 +1,5 @@
 import React from "react";
+import { __TRACER__, engineStore, APP_VERSION } from "@/lib/engine-store";
 
 type Exercise = {
   exercise: string;
